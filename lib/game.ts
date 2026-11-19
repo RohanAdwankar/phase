@@ -1,10 +1,15 @@
 import * as THREE from "three"
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js"
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js"
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js"
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js"
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
 const N = 5, SEG = 40, HW = 12, DT = 1 / 120, G = 24, SPEED = 10, GOLD = 0xd9a441
 type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
-type Enemy = { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; hp: number }
+type Enemy = { mesh: THREE.Group; pos: THREE.Vector3; dim: number; hp: number }
 type Seg = { group: THREE.Group; boxes: Box[]; enemies: Enemy[]; clear: number; z0: number }
 
 const rng = (s: number) => () => {
@@ -28,29 +33,57 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x07080a)
-  scene.fog = new THREE.FogExp2(0x07080a, 0.012)
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture
+  scene.environmentIntensity = 0.7
+  scene.fog = new THREE.FogExp2(0x3a2c52, 0.007)
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(280, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: "varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: `varying vec3 p;
+      float h(vec3 v){ return fract(sin(dot(v, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+      void main(){
+        vec3 d = normalize(p); float y = d.y;
+        vec3 c = mix(vec3(0.27, 0.19, 0.38), vec3(0.03, 0.05, 0.16), smoothstep(-0.05, 0.7, y));
+        c += vec3(0.5, 0.25, 0.55) * 0.35 * pow(max(0.0, sin(d.x * 3.0 + sin(d.z * 2.0) * 2.0) * 0.5 + 0.5), 3.0) * smoothstep(0.0, 0.5, y);
+        c += vec3(1.0, 0.8, 0.5) * 0.5 * pow(max(0.0, dot(d, normalize(vec3(-0.3, 0.35, -1.0)))), 40.0);
+        float st = step(0.9985, h(floor(d * 220.0))); c += st * smoothstep(0.1, 0.5, y);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  }))
+  scene.add(sky)
+  const composer = new EffectComposer(renderer)
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.6, 0.7, 0.9)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 300)
   cam.rotation.order = "YXZ"
-  scene.add(cam, new THREE.AmbientLight(0xaab4c8, 2.4))
-  const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(-3, 10, 4); scene.add(sun)
-  const glow = new THREE.PointLight(GOLD, 20, 30); scene.add(glow)
+  scene.add(cam, new THREE.AmbientLight(0xb8a8d0, 0.5))
+  const sun = new THREE.DirectionalLight(0xffe6c0, 2.2); sun.position.set(-3, 10, 4); scene.add(sun)
+  const glow = new THREE.PointLight(GOLD, 30, 30); scene.add(glow)
 
   const per = <T,>(f: () => T) => [...Array(N)].map(f)
-  const panel = per(() => new THREE.MeshStandardMaterial({ color: 0x6a7384, metalness: 0.3, roughness: 0.6, transparent: true }))
+  const panel = per(() => new THREE.MeshStandardMaterial({ color: 0xe6e0d2, metalness: 0.7, roughness: 0.3, transparent: true }))
+  const floor = per(() => new THREE.MeshStandardMaterial({ color: 0x15161b, metalness: 0.9, roughness: 0.2, transparent: true }))
   const trim = per(() => new THREE.LineBasicMaterial({ color: GOLD, transparent: true }))
-  const foe = per(() => new THREE.MeshStandardMaterial({ color: 0xeeeeee, emissive: 0xffffff, emissiveIntensity: 0.5, transparent: true }))
+  const strip = per(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(GOLD).multiplyScalar(2.5), transparent: true, toneMapped: false }))
+  const foe = per(() => new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.8, roughness: 0.3, transparent: true }))
+  const eye = per(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x66ddff).multiplyScalar(3), transparent: true, toneMapped: false }))
+  const all = [panel, floor, trim, strip, foe, eye]
+  composer.addPass(new RenderPass(scene, cam)); composer.addPass(bloom); composer.addPass(new OutputPass())
   const tracerMat = new THREE.LineBasicMaterial({ color: GOLD })
 
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.35), new THREE.MeshStandardMaterial({ color: 0x15171b }))
-  gun.add(new THREE.LineSegments(new THREE.EdgesGeometry(gun.geometry), tracerMat))
-  gun.position.set(0.2, -0.18, -0.45); cam.add(gun)
+  const gunMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.8, roughness: 0.4 })
+  const goldMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(GOLD).multiplyScalar(2), toneMapped: false })
+  const gun = new THREE.Group()
+  for (const [sx, sy, sz, x, y, z, m] of [[0.06, 0.08, 0.4, 0, 0, 0, gunMat], [0.03, 0.03, 0.25, 0, 0.01, -0.3, gunMat], [0.062, 0.012, 0.3, 0, 0.046, -0.02, goldMat],
+    [0.05, 0.12, 0.07, 0, -0.09, 0.08, gunMat], [0.04, 0.05, 0.14, 0, -0.01, 0.26, gunMat]] as const) {
+    const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); part.position.set(x, y, z); gun.add(part)
+  }
+  gun.position.set(0.18, -0.19, -0.55); cam.add(gun)
 
   const segs = new Map<number, Seg>()
   const addBox = (s: Seg, dim: number, a: number[], b: number[], grid = false) => {
     const size = new V(b[0] - a[0], b[1] - a[1], b[2] - a[2])
     const geo = new THREE.BoxGeometry(size.x, size.y, size.z)
-    const m = new THREE.Mesh(geo, panel[dim])
+    const m = new THREE.Mesh(geo, grid ? floor[dim] : panel[dim])
     m.position.set((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2)
     m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), trim[dim]))
     if (grid) {
@@ -69,11 +102,15 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     for (let dim = 0; dim < N; dim++) {
       const k = i < 2 || dim === s.clear ? 0.3 : r()
       addBox(s, dim, [-HW - 1, -3, z1], [-HW, 16, z0]); addBox(s, dim, [HW, -3, z1], [HW + 1, 16, z0])
+      for (const [x, y] of [[-HW, 1], [HW - 0.12, 1], [-HW, 7], [HW - 0.12, 7]]) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, SEG), strip[dim]); m.position.set(x + 0.06, y, (z0 + z1) / 2); s.group.add(m)
+      }
       if (k < 0.2) { addBox(s, dim, [-HW, -3, z0 - 10], [HW, 0, z0], true); addBox(s, dim, [-HW, -3, z1], [HW, 0, z0 - 30], true) }
       else addBox(s, dim, [-HW, -3, z1], [HW, 0, z0], true)
       if (k > 0.6) for (let j = 0; j < 3; j++) {
         const x = -9 + r() * 18, z = z1 + 2 + r() * (SEG - 4), h = 3 + r() * 5
         addBox(s, dim, [x - 1, 0, z - 1], [x + 1, h, z + 1])
+        const ring = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 2.1), strip[dim]); ring.position.set(x, h * 0.6, z); s.group.add(ring)
       }
       if (r() < 0.6) {
         const x = (r() - 0.5) * 12, y = 3 + r() * 4, z = z1 + 3 + r() * (SEG - 6)
@@ -81,8 +118,12 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
       }
       if (k > 0.35 && k <= 0.6) for (let j = 0; j < 2; j++) {
         const pos = new V((r() - 0.5) * 20, 0, z1 + 4 + r() * (SEG - 8))
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.8), foe[dim])
-        mesh.position.set(pos.x, 0.9, pos.z); s.group.add(mesh)
+        const mesh = new THREE.Group()
+        for (const [sx, sy, sz, x, y, m] of [[0.6, 0.7, 0.35, 0, 1.15, foe[dim]], [0.28, 0.28, 0.28, 0, 1.65, foe[dim]], [0.2, 0.06, 0.05, 0, 1.67, eye[dim]],
+          [0.22, 0.8, 0.22, -0.16, 0.4, foe[dim]], [0.22, 0.8, 0.22, 0.16, 0.4, foe[dim]], [0.15, 0.65, 0.15, -0.4, 1.15, foe[dim]], [0.15, 0.65, 0.15, 0.4, 1.15, foe[dim]]] as const) {
+          const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); part.position.set(x, y, 0); mesh.add(part)
+        }
+        mesh.position.set(pos.x, 0, pos.z); s.group.add(mesh)
         s.enemies.push({ mesh, pos, dim, hp: 4 })
       }
     }
@@ -188,7 +229,7 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     if (st.fire && st.fireT <= 0) { shoot(); st.fireT = 0.09 }
     for (const s of nearSegs()) for (const e of s.enemies) {
       const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
-      if (dist < 35 && dist > 0.9) { e.pos.x = Math.max(-HW + 1, Math.min(HW - 1, e.pos.x + dx / dist * 3.5 * DT)); e.pos.z += dz / dist * 3.5 * DT; e.mesh.position.set(e.pos.x, 0.9, e.pos.z) }
+      if (dist < 35 && dist > 0.9) { e.pos.x = Math.max(-HW + 1, Math.min(HW - 1, e.pos.x + dx / dist * 3.5 * DT)); e.pos.z += dz / dist * 3.5 * DT; e.mesh.position.set(e.pos.x, 0, e.pos.z) }
       if (e.dim === nd() && dist < 1.2 && Math.abs(p.y - e.pos.y) < 1.6) st.hp -= 30 * DT
     }
     best = Math.max(best, Math.floor(-p.z))
@@ -209,20 +250,18 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     glow.position.set(p.x, p.y + 3, p.z - 2)
     for (let i = 0; i < N; i++) {
       const a = Math.max(0, 1 - Math.abs(d - i) * 1.1), solid = i === nd()
-      panel[i].opacity = foe[i].opacity = solid ? 1 : a * 0.22
-      panel[i].depthWrite = foe[i].depthWrite = solid
-      trim[i].opacity = solid ? 0.9 : a * 0.5
-      panel[i].visible = foe[i].visible = trim[i].visible = a > 0
+      for (const m of all) { m[i].visible = a > 0; m[i].opacity = solid ? 1 : a * (m === trim || m === strip || m === eye ? 0.5 : 0.22); m[i].depthWrite = solid }
     }
     for (let i = tracers.length - 1; i >= 0; i--) if ((tracers[i].life -= dt) <= 0) { tracers[i].line.removeFromParent(); tracers.splice(i, 1) }
-    renderer.render(scene, cam)
+    sky.position.copy(cam.position)
+    composer.render()
 
     ctx.clearRect(0, 0, w, h)
     const c = st.hit > 0 ? "#fff" : "#d9a441"
     ctx.strokeStyle = c; ctx.lineWidth = 1.5
     ctx.beginPath(); ctx.moveTo(w / 2 - 8, h / 2); ctx.lineTo(w / 2 - 3, h / 2); ctx.moveTo(w / 2 + 3, h / 2); ctx.lineTo(w / 2 + 8, h / 2)
     ctx.moveTo(w / 2, h / 2 - 8); ctx.lineTo(w / 2, h / 2 - 3); ctx.moveTo(w / 2, h / 2 + 3); ctx.lineTo(w / 2, h / 2 + 8); ctx.stroke()
-    ctx.fillStyle = "#aaa"; ctx.font = "14px ui-monospace, monospace"
+    ctx.fillStyle = "#fff"; ctx.shadowColor = "#000"; ctx.shadowBlur = 4; ctx.font = "14px ui-monospace, monospace"
     ctx.fillText(`${Math.floor(-p.z)} m   ${st.kills} kills   best ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     ctx.fillStyle = "#d9a441"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 3)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
@@ -237,7 +276,7 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); hud.width = w * dpr; hud.height = h * dpr
-      cam.aspect = w / h; cam.updateProjectionMatrix()
+      cam.aspect = w / h; cam.updateProjectionMatrix(); composer.setPixelRatio(dpr); composer.setSize(w, h)
     }
     while (acc > DT) { acc -= DT; step() }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
@@ -267,7 +306,7 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
   return () => {
-    cancelAnimationFrame(raf); renderer.dispose()
+    cancelAnimationFrame(raf); composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)
     removeEventListener("wheel", wh); canvas.removeEventListener("click", click)
