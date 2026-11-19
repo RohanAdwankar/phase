@@ -7,6 +7,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
+const X = Math.PI / 2
 const N = 5, SEG = 40, HW = 12, DT = 1 / 120, G = 24, SPEED = 10, GOLD = 0xd9a441
 type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
 type Enemy = { mesh: THREE.Group; pos: THREE.Vector3; dim: number; hp: number }
@@ -50,7 +51,16 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
         gl_FragColor = vec4(c, 1.0);
       }`,
   }))
-  scene.add(sky)
+  sky.renderOrder = -2
+  const bands = document.createElement("canvas"); bands.width = 4; bands.height = 256
+  const bg = bands.getContext("2d")!
+  for (let y = 0; y < 256; y++) { const t = 0.5 + 0.5 * Math.sin(y * 0.19) * Math.sin(y * 0.047 + 1); bg.fillStyle = `rgb(${90 + t * 140},${60 + t * 90},${70 + t * 40})`; bg.fillRect(0, y, 4, 1) }
+  const planet = new THREE.Group()
+  planet.add(new THREE.Mesh(new THREE.SphereGeometry(38, 48, 32), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bands), fog: false, depthWrite: false })))
+  const ring = new THREE.Mesh(new THREE.RingGeometry(52, 85, 96), new THREE.MeshBasicMaterial({ color: 0xd9b98a, side: THREE.DoubleSide, transparent: true, opacity: 0.35, fog: false, depthWrite: false }))
+  ring.rotation.x = X * 0.85; planet.add(ring)
+  planet.traverse(o => (o.renderOrder = -1))
+  scene.add(sky, planet)
   const composer = new EffectComposer(renderer)
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.6, 0.7, 0.9)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 300)
@@ -73,10 +83,12 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
   const gunMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.8, roughness: 0.4 })
   const goldMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(GOLD).multiplyScalar(2), toneMapped: false })
   const gun = new THREE.Group()
-  for (const [sx, sy, sz, x, y, z, m] of [[0.06, 0.08, 0.4, 0, 0, 0, gunMat], [0.03, 0.03, 0.25, 0, 0.01, -0.3, gunMat], [0.062, 0.012, 0.3, 0, 0.046, -0.02, goldMat],
-    [0.05, 0.12, 0.07, 0, -0.09, 0.08, gunMat], [0.04, 0.05, 0.14, 0, -0.01, 0.26, gunMat]] as const) {
-    const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); part.position.set(x, y, z); gun.add(part)
-  }
+  for (const [geo, m, x, y, z, rx] of [
+    [new THREE.CapsuleGeometry(0.035, 0.3, 6, 16), gunMat, 0, 0, 0, X], [new THREE.CylinderGeometry(0.012, 0.014, 0.4, 16), gunMat, 0, 0.005, -0.34, X],
+    [new THREE.TorusGeometry(0.026, 0.005, 8, 24), goldMat, 0, 0, -0.2, 0], [new THREE.TorusGeometry(0.026, 0.005, 8, 24), goldMat, 0, 0, -0.1, 0],
+    [new THREE.CapsuleGeometry(0.022, 0.1, 6, 12), gunMat, 0, -0.08, 0.05, 0.2], [new THREE.CapsuleGeometry(0.028, 0.12, 6, 12), gunMat, 0, -0.01, 0.27, X],
+    [new THREE.CylinderGeometry(0.008, 0.008, 0.3, 8), goldMat, 0, 0.036, -0.02, X],
+  ] as const) { const part = new THREE.Mesh(geo, m); part.position.set(x, y, z); part.rotation.x = rx; gun.add(part) }
   gun.position.set(0.18, -0.19, -0.55); cam.add(gun)
 
   const segs = new Map<number, Seg>()
@@ -95,6 +107,35 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     s.group.add(m)
     s.boxes.push({ min: new V(...(a as [number, number, number])), max: new V(...(b as [number, number, number])), dim })
   }
+  const deco = (s: Seg, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; s.group.add(m)
+  }
+  const pillar = (s: Seg, dim: number, x: number, z: number, h: number) => {
+    s.boxes.push({ min: new V(x - 1, 0, z - 1), max: new V(x + 1, h, z + 1), dim })
+    deco(s, new THREE.CylinderGeometry(0.85, 0.95, h, 32), panel[dim], x, h / 2, z)
+    deco(s, new THREE.CylinderGeometry(1, 1, 0.3, 32), panel[dim], x, 0.15, z)
+    deco(s, new THREE.CylinderGeometry(1, 1, 0.3, 32), panel[dim], x, h - 0.15, z)
+    for (const [y, r] of [[0.32, 1], [h - 0.32, 1], [h * 0.6, 0.9]]) deco(s, new THREE.TorusGeometry(r, 0.06, 8, 40), strip[dim], x, y, z, X)
+  }
+  const disc = (s: Seg, dim: number, x: number, y: number, z: number) => {
+    s.boxes.push({ min: new V(x - 2.1, y, z - 2.1), max: new V(x + 2.1, y + 0.5, z + 2.1), dim })
+    deco(s, new THREE.CylinderGeometry(2.6, 1.8, 0.5, 40), floor[dim], x, y + 0.25, z)
+    deco(s, new THREE.TorusGeometry(2.6, 0.06, 8, 48), strip[dim], x, y + 0.5, z, X)
+    deco(s, new THREE.TorusGeometry(1.7, 0.05, 8, 40), strip[dim], x, y, z, X)
+  }
+  const humanoid = (dim: number) => {
+    const g = new THREE.Group(), f = foe[dim]
+    for (const [geo, m, x, y, z, rz] of [
+      [new THREE.CapsuleGeometry(0.2, 0.4, 6, 16), f, 0, 1.2, 0, 0], [new THREE.SphereGeometry(0.17, 20, 16), f, 0, 0.88, 0, 0],
+      [new THREE.SphereGeometry(0.15, 20, 16), f, 0, 1.75, 0, 0], [new THREE.SphereGeometry(0.1, 16, 8), eye[dim], 0, 1.76, 0.1, 0],
+      [new THREE.SphereGeometry(0.14, 16, 12), f, -0.3, 1.45, 0, 0], [new THREE.SphereGeometry(0.14, 16, 12), f, 0.3, 1.45, 0, 0],
+      [new THREE.CapsuleGeometry(0.06, 0.5, 6, 12), f, -0.36, 1.15, 0, 0.15], [new THREE.CapsuleGeometry(0.06, 0.5, 6, 12), f, 0.36, 1.15, 0, -0.15],
+      [new THREE.CapsuleGeometry(0.09, 0.55, 6, 12), f, -0.12, 0.45, 0, 0], [new THREE.CapsuleGeometry(0.09, 0.55, 6, 12), f, 0.12, 0.45, 0, 0],
+      [new THREE.SphereGeometry(0.06, 12, 8), eye[dim], 0, 1.3, 0.19, 0],
+      [new THREE.ConeGeometry(0.04, 0.3, 8), f, -0.1, 1.95, -0.02, 0.35], [new THREE.ConeGeometry(0.04, 0.3, 8), f, 0.1, 1.95, -0.02, -0.35],
+    ] as const) { const part = new THREE.Mesh(geo, m); part.position.set(x, y, z); part.rotation.z = rz; if (m === eye[dim]) part.scale.set(1, 0.4, 0.5); g.add(part) }
+    return g
+  }
   const gen = (i: number) => {
     const r = rng(i * 7919 + 13), z0 = -i * SEG, z1 = z0 - SEG
     const s: Seg = { group: new THREE.Group(), boxes: [], enemies: [], clear: i < 2 ? 2 : Math.floor(r() * N), z0 }
@@ -102,27 +143,24 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     for (let dim = 0; dim < N; dim++) {
       const k = i < 2 || dim === s.clear ? 0.3 : r()
       addBox(s, dim, [-HW - 1, -3, z1], [-HW, 16, z0]); addBox(s, dim, [HW, -3, z1], [HW + 1, 16, z0])
-      for (const [x, y] of [[-HW, 1], [HW - 0.12, 1], [-HW, 7], [HW - 0.12, 7]]) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, SEG), strip[dim]); m.position.set(x + 0.06, y, (z0 + z1) / 2); s.group.add(m)
+      for (const [x, y] of [[-HW, 1], [HW - 0.12, 1], [-HW, 7], [HW - 0.12, 7]]) deco(s, new THREE.CylinderGeometry(0.07, 0.07, SEG, 8), strip[dim], x + (x < 0 ? 0.06 : 0.1), y, (z0 + z1) / 2, X)
+      for (let j = 0; j < 4; j++) {
+        deco(s, new THREE.TorusGeometry(HW, 0.3, 10, 64, Math.PI), panel[dim], 0, 4, z0 - 5 - j * 10)
+        deco(s, new THREE.TorusGeometry(HW - 0.3, 0.05, 8, 64, Math.PI), strip[dim], 0, 4, z0 - 5 - j * 10)
       }
       if (k < 0.2) { addBox(s, dim, [-HW, -3, z0 - 10], [HW, 0, z0], true); addBox(s, dim, [-HW, -3, z1], [HW, 0, z0 - 30], true) }
       else addBox(s, dim, [-HW, -3, z1], [HW, 0, z0], true)
       if (k > 0.6) for (let j = 0; j < 3; j++) {
         const x = -9 + r() * 18, z = z1 + 2 + r() * (SEG - 4), h = 3 + r() * 5
-        addBox(s, dim, [x - 1, 0, z - 1], [x + 1, h, z + 1])
-        const ring = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 2.1), strip[dim]); ring.position.set(x, h * 0.6, z); s.group.add(ring)
+        pillar(s, dim, x, z, h)
       }
       if (r() < 0.6) {
         const x = (r() - 0.5) * 12, y = 3 + r() * 4, z = z1 + 3 + r() * (SEG - 6)
-        addBox(s, dim, [x - 3, y, z - 3], [x + 3, y + 0.5, z + 3])
+        disc(s, dim, x, y, z)
       }
       if (k > 0.35 && k <= 0.6) for (let j = 0; j < 2; j++) {
         const pos = new V((r() - 0.5) * 20, 0, z1 + 4 + r() * (SEG - 8))
-        const mesh = new THREE.Group()
-        for (const [sx, sy, sz, x, y, m] of [[0.6, 0.7, 0.35, 0, 1.15, foe[dim]], [0.28, 0.28, 0.28, 0, 1.65, foe[dim]], [0.2, 0.06, 0.05, 0, 1.67, eye[dim]],
-          [0.22, 0.8, 0.22, -0.16, 0.4, foe[dim]], [0.22, 0.8, 0.22, 0.16, 0.4, foe[dim]], [0.15, 0.65, 0.15, -0.4, 1.15, foe[dim]], [0.15, 0.65, 0.15, 0.4, 1.15, foe[dim]]] as const) {
-          const part = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m); part.position.set(x, y, 0); mesh.add(part)
-        }
+        const mesh = humanoid(dim)
         mesh.position.set(pos.x, 0, pos.z); s.group.add(mesh)
         s.enemies.push({ mesh, pos, dim, hp: 4 })
       }
@@ -253,7 +291,7 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
       for (const m of all) { m[i].visible = a > 0; m[i].opacity = solid ? 1 : a * (m === trim || m === strip || m === eye ? 0.5 : 0.22); m[i].depthWrite = solid }
     }
     for (let i = tracers.length - 1; i >= 0; i--) if ((tracers[i].life -= dt) <= 0) { tracers[i].line.removeFromParent(); tracers.splice(i, 1) }
-    sky.position.copy(cam.position)
+    sky.position.copy(cam.position); planet.position.set(cam.position.x - 90, cam.position.y + 55, cam.position.z - 180)
     composer.render()
 
     ctx.clearRect(0, 0, w, h)
