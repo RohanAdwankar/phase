@@ -3,11 +3,12 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js"
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js"
-import { makeSky, SUN } from "./sky"
+import { loadSky } from "./assets"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
 import { makeViewmodel, Enemy, N } from "./actors"
-import { buildSegment, dimMats, makeMats, uTime, Box, Seg, HW, SEG } from "./world"
+import { buildSegment, disposeSegment, loadWorld, Box, Seg, HW, SEG } from "./world"
+import { registry, uTime, uPlayer } from "./materials"
 
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
@@ -31,16 +32,19 @@ const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE
   return t0
 }
 
-export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
+export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
   const scene = new THREE.Scene()
-  const envScene = new THREE.Scene(); envScene.add(makeSky(50))
-  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(envScene, 0.02).texture
-  scene.environmentIntensity = 0.65
-  scene.fog = new THREE.FogExp2(0xb9cde0, 0.0042)
-  const sky = makeSky(700); sky.renderOrder = -1; scene.add(sky)
+  const ctx = hud.getContext("2d")!
+  hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
+  const [world, sky] = await Promise.all([loadWorld(), loadSky()])
+  scene.background = sky.tex; scene.environment = sky.tex; scene.environmentIntensity = 0.9
+  const az = (v: THREE.Vector3) => Math.atan2(v.z, v.x), spin = az(sky.sun) - az(new THREE.Vector3(-0.35, 0, -0.86))
+  scene.backgroundRotation.y = spin; scene.environmentRotation.y = spin
+  const SUN = sky.sun.clone().applyEuler(scene.backgroundRotation)
+  scene.fog = new THREE.FogExp2(0xbdd0e4, 0.0034)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 1000)
   cam.rotation.order = "YXZ"; scene.add(cam)
   scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x6a5a38, 1.15))
@@ -53,14 +57,13 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.6, 0.95)
   composer.addPass(new RenderPass(scene, cam)); composer.addPass(bloom); composer.addPass(new OutputPass())
 
-  const mats = makeMats(), fx = makeFx(scene), vm = makeViewmodel(flashTexture())
-  const matLists = dimMats(mats)
+  const fx = makeFx(scene), vm = makeViewmodel(flashTexture())
   cam.add(vm.root)
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
   const segs = new Map<number, Seg>()
-  const gen = (i: number) => segs.set(i, buildSegment(scene, mats, i, rng(i * 7919 + 13)))
+  const gen = (i: number) => segs.set(i, buildSegment(scene, world, i, rng(i * 7919 + 13)))
   const st = { pos: new V(0, 0.01, -4), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
     wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
@@ -190,10 +193,9 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     best = Math.max(best, Math.floor(-p.z))
     if (st.hp <= 0 || p.y < -30) respawn()
     for (let i = segAt() - 2; i < segAt() + 8; i++) if (i >= 0 && !segs.has(i)) gen(i)
-    for (const [i, s] of segs) if (i < segAt() - 2) { s.group.removeFromParent(); segs.delete(i) }
+    for (const [i, s] of segs) if (i < segAt() - 2) { disposeSegment(s); segs.delete(i) }
   }
 
-  const ctx = hud.getContext("2d")!
   const frame = (w: number, h: number, dt: number) => {
     time += dt; uTime.value = time
     const p = st.pos, speed = Math.hypot(st.vel.x, st.vel.z), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
@@ -208,10 +210,14 @@ export function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
     vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8, -st.lookX * 0.8, st.slide ? -0.12 : 0)
     vm.flash.material.opacity = st.flash > 0 ? 1 : 0; vm.light.intensity = st.flash > 0 ? 6 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
-    sky.position.copy(cam.position)
+    uPlayer.value.copy(p)
+    for (const [i, s] of segs) {
+      const near = Math.abs(i - segAt()) <= 3
+      s.detail.visible = near; s.trees.hi.forEach(o => (o.visible = near)); s.trees.lo.forEach(o => (o.visible = !near))
+    }
     for (let i = 0; i < N; i++) {
       const a = Math.max(0, 1 - Math.abs(d - i) * 1.1), solid = i === nd()
-      for (const list of matLists) { const m = list[i]; m.visible = a > 0; m.opacity = solid ? 1 : a * 0.25; m.transparent = !solid; m.depthWrite = solid }
+      for (const m of registry[i]) { m.visible = a > 0; m.opacity = solid ? 1 : a * 0.25; m.transparent = !solid; m.depthWrite = solid }
     }
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
     fx.update(dt, cam.position)

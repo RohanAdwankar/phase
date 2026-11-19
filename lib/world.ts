@@ -1,44 +1,38 @@
 import * as THREE from "three"
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 import { fbm } from "./noise"
-import { groundTexture, rockTexture } from "./textures"
-import { N, FoeMats, Enemy, Mat, makeFoeMats, walker } from "./actors"
+import { PBR, Model, loadPBR, loadModel } from "./assets"
+import { N, track, untrack, pbrMaterial, splatMaterial, grassMaterial } from "./materials"
+import { Enemy, makeFoeMats, walker } from "./actors"
 
 const V = THREE.Vector3
 export const SEG = 40, HW = 16
 export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
-export type Seg = { group: THREE.Group; boxes: Box[]; enemies: Enemy[]; clear: number; z0: number }
-export const uTime = { value: 0 }
+export type Seg = { group: THREE.Group; detail: THREE.Group; trees: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }; boxes: Box[]; enemies: Enemy[]; clear: number; z0: number; grass: THREE.Material[]; geos: THREE.BufferGeometry[] }
 
-const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => f(i))
-const TINT = [0xb4d978, 0xdcc56a, 0x78c9b4, 0xd98f5a, 0xb09ae0]
+const TINT = [0xffffff, 0xfff0b0, 0xc8fff0, 0xffd0a8, 0xe8d8ff]
+const MODELS = ["namaqualand_boulder_02", "namaqualand_boulder_03", "namaqualand_boulder_04", "namaqualand_boulder_05", "boulder_01", "namaqualand_cliff_01", "namaqualand_cliff_02", "mountainside", "coastal_cliff_02",
+  "fir_sapling", "fir_sapling_lo", "pine_sapling_small", "pine_sapling_lo", "fir_sapling_medium", "fir_sapling_medium_lo", "shrub_02", "shrub_03", "fern_02", "grass_medium_01", "grass_medium_02", "dandelion_01", "celandine_01", "periwinkle_plant", "moss_01", "dry_branches_medium_01", "tree_stump_01"]
 
-export const makeMats = () => {
-  const ground = groundTexture(), rock = rockTexture()
-  const grassMat = (i: number) => {
-    const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85, transparent: true, color: TINT[i] })
-    m.onBeforeCompile = sh => {
-      sh.uniforms.uTime = uTime
-      sh.vertexShader = "uniform float uTime;\n" + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
-        vec3 ip = vec3(instanceMatrix[3]); float k = pow(position.y * 2.0, 2.0);
-        transformed.x += sin(uTime * 1.7 + ip.x * 0.35 + ip.z * 0.27) * 0.14 * k;
-        transformed.z += cos(uTime * 1.3 + ip.z * 0.4) * 0.08 * k;`)
-    }
-    return m
+export const loadWorld = async () => {
+  const [grass, dry, rock, cliff, olive, metal] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "cliff_side", "green_metal_rust", "metal_plate"].map(loadPBR))
+  const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await loadModel(id)] as const))
+  const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await loadModel("pine_sapling_small_lo")
+  const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
+  const lane = per(i => splatMaterial(grass, dry, { scaleB: 0.8, tint: TINT[i] }))
+  const body = per(i => pbrMaterial(cliff, { tint: TINT[i] }))
+  const rockMat = per(i => pbrMaterial(rock, { tint: TINT[i] }))
+  const cache = new Map<string, THREE.Material>()
+  const matFor = (dim: number, id: string, k: number, src: THREE.Material) => {
+    const key = `${dim}:${id}:${k}`
+    if (!cache.has(key)) cache.set(key, track(dim, src.clone()))
+    return cache.get(key)!
   }
-  return {
-    rock: per(() => new THREE.MeshStandardMaterial({ map: rock, roughness: 0.92, metalness: 0, transparent: true })),
-    ground: per(i => new THREE.MeshStandardMaterial({ map: ground, color: TINT[i], roughness: 0.95, transparent: true })),
-    grass: per(grassMat),
-    foe: makeFoeMats(),
-    hill: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
-    tree: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
-  }
+  const hill = splatMaterial(grass, rock, { scaleB: 0.5, attr: true, tint: 0xd8d8d0 }); hill.transparent = false
+  return { grass, dry, rock, cliff, olive, metal, lane, body, rockMat, models, matFor, hill, foe: makeFoeMats() }
 }
-export type Mats = ReturnType<typeof makeMats>
-export const dimMats = (m: Mats): Mat[][] => [m.rock, m.ground, m.grass, m.foe.olive, m.foe.yellow, m.foe.metal, m.foe.lamp]
+export type World = Awaited<ReturnType<typeof loadWorld>>
 
-const triUV = (geo: THREE.BufferGeometry, scale = 7) => {
+const triUV = (geo: THREE.BufferGeometry, scale = 5) => {
   const p = geo.attributes.position, n = geo.attributes.normal, uv = geo.attributes.uv
   for (let i = 0; i < p.count; i++) {
     const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i)), az = Math.abs(n.getZ(i))
@@ -46,138 +40,131 @@ const triUV = (geo: THREE.BufferGeometry, scale = 7) => {
     uv.setXY(i, u / scale, v / scale)
   }
 }
-const displace = (geo: THREE.BufferGeometry, f: (x: number, y: number, z: number) => number[]) => {
-  const p = geo.attributes.position
-  for (let i = 0; i < p.count; i++) { const [x, y, z] = f(p.getX(i), p.getY(i), p.getZ(i)); p.setXYZ(i, x, y, z) }
-  geo.computeVertexNormals()
-}
 
 const blade = (() => {
-  const rows = [[0, 0.032], [0.12, 0.028], [0.25, 0.019], [0.4, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
-  const lo = new THREE.Color(0x2c5518), hi = new THREE.Color(0xb4cf62)
+  const rows = [[0, 0.028], [0.15, 0.025], [0.32, 0.019], [0.52, 0.011], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
+  const lo = new THREE.Color(0x1d3a0e), mid = new THREE.Color(0x5a8a24), hi = new THREE.Color(0xc4d870)
   rows.forEach(([y, w], r) => {
-    const c = lo.clone().lerp(hi, y / 0.4), z = y * y * 0.8
+    const c = y < 0.35 ? lo.clone().lerp(mid, y / 0.35) : mid.clone().lerp(hi, (y - 0.35) / 0.4), z = y * y * 0.7
     pos.push(-w, y, z, w, y, z); col.push(c.r, c.g, c.b, c.r, c.g, c.b)
     if (r < rows.length - 1) idx.push(r * 2, r * 2 + 1, r * 2 + 2, r * 2 + 1, r * 2 + 3, r * 2 + 2)
   })
   const g = new THREE.BufferGeometry()
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3))
-  g.setIndex(idx); g.computeVertexNormals(); return g
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx)
+  return g
 })()
 
-const treeGeo = (() => {
-  const part = (g: THREE.BufferGeometry, y: number, hex: number) => {
-    g.translate(0, y, 0)
-    const c = new THREE.Color(hex), a: number[] = []
-    for (let i = 0; i < g.attributes.position.count; i++) a.push(c.r, c.g, c.b)
-    g.setAttribute("color", new THREE.Float32BufferAttribute(a, 3)); return g.toNonIndexed().deleteAttribute("uv")
-  }
-  const parts = [part(new THREE.CylinderGeometry(0.2, 0.3, 1.6, 6), 0.8, 0x4a3524), part(new THREE.ConeGeometry(1.5, 3.2, 8), 2.6, 0x23401f),
-    part(new THREE.ConeGeometry(1.15, 2.7, 8), 4.1, 0x2b4b24), part(new THREE.ConeGeometry(0.8, 2.3, 8), 5.4, 0x345a2a)]
-  parts.forEach(g => g.deleteAttribute("normal"))
-  const m = mergeGeometries(parts)!; m.computeVertexNormals(); return m
-})()
-
-const hillY = (x: number, z: number) => {
-  const d = Math.abs(x) - HW - 9
-  return 5 + fbm(x * 0.035, z * 0.035, 2) * 16 + Math.max(0, d) * 0.45
+export const hillY = (x: number, z: number) => {
+  const d = Math.max(0, Math.abs(x) - HW - 12)
+  return 4 + fbm(x * 0.03, z * 0.03, 2) * 22 + d * 0.5 + fbm(x * 0.12, z * 0.12, 5) * 3
 }
 
-export const buildSegment = (scene: THREE.Scene, m: Mats, i: number, rng: () => number): Seg => {
+export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () => number): Seg => {
   const z0 = -i * SEG, z1 = z0 - SEG, zc = (z0 + z1) / 2
-  const s: Seg = { group: new THREE.Group(), boxes: [], enemies: [], clear: i < 2 ? 2 : Math.floor(rng() * N), z0 }
-  scene.add(s.group)
-  const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true) => {
-    const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = shadow; o.receiveShadow = true; s.group.add(o); return o
+  const s: Seg = { group: new THREE.Group(), detail: new THREE.Group(), trees: { hi: [], lo: [] }, boxes: [], enemies: [], clear: i < 2 ? 2 : Math.floor(rng() * N), z0, grass: [], geos: [] }
+  s.group.add(s.detail); scene.add(s.group)
+  const add = (o: THREE.Object3D, parent: THREE.Object3D = s.group) => { parent.add(o); return o }
+  const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, cast = true) => {
+    const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = cast; o.receiveShadow = true; s.geos.push(geo); return add(o)
   }
-
-  const floorPiece = (dim: number, za: number, zb: number) => {
-    const len = zb - za, zm = (za + zb) / 2
-    s.boxes.push({ min: new V(-HW, -3, za), max: new V(HW, 0, zb), dim })
-    const body = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(body)
-    mesh(body, m.rock[dim], 0, -1.52, zm, false)
-    const top = new THREE.PlaneGeometry(HW * 2, len); top.rotateX(-Math.PI / 2)
-    const uv = top.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * HW * 2 / 8, uv.getY(k) * len / 8)
-    mesh(top, m.ground[dim], 0, 0.002, zm, false)
-    const count = Math.round(len * HW * 2 * 2.4), grass = new THREE.InstancedMesh(blade, m.grass[dim], count), dummy = new THREE.Object3D(), c = new THREE.Color()
-    for (let k = 0; k < count; k++) {
-      dummy.position.set((rng() - 0.5) * HW * 2, 0, za + rng() * len)
-      dummy.rotation.set((rng() - 0.5) * 0.3, rng() * 6.3, 0); dummy.scale.set(1, 0.6 + rng() * 1.2, 1).multiplyScalar(0.8 + rng() * 0.7)
-      dummy.updateMatrix(); grass.setMatrixAt(k, dummy.matrix); grass.setColorAt(k, c.setHSL(0.24 + rng() * 0.04, 0.45, 0.4 + rng() * 0.25))
-    }
-    s.group.add(grass)
-  }
-
-  const cliff = (dim: number, side: number) => {
-    const g = new THREE.BoxGeometry(10, 14, SEG, 5, 10, 24); triUV(g)
-    displace(g, (x, y, z) => {
-      const out = (x + 5) / 10, seed = i * 3 + dim
-      const dx = (fbm(y * 0.2 + seed, z * 0.18, 1) - 0.4) * 2 * (0.15 + out * 3.2)
-      const t = (y + 7) / 14, dy = -(t ** 3) * 9 * fbm(x * 0.12 + seed, z * 0.1, 5)
-      return [x + dx, y + dy, z + (fbm(x * 0.2, y * 0.2, seed) - 0.4) * 0.8 * out]
+  const place = (id: string, dim: number, ms: THREE.Matrix4[], parent: THREE.Object3D = s.detail, shadow = true) => {
+    const model = w.models[id], out: THREE.InstancedMesh[] = []
+    model.parts.forEach((p, k) => {
+      const im = new THREE.InstancedMesh(p.geo, w.matFor(dim, id, k, p.mat), ms.length)
+      ms.forEach((m, j) => im.setMatrixAt(j, m)); im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false; parent.add(im); out.push(im)
     })
-    const o = mesh(g, m.rock[dim], side * (HW + 5), 4, zc); o.scale.x = side
-    s.boxes.push({ min: new V(side > 0 ? HW : -HW - 1, -3, z1), max: new V(side > 0 ? HW + 1 : -HW, 16, z0), dim })
+    return out
   }
+  const mat4 = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx, mirror = 1) =>
+    new THREE.Matrix4().compose(new V(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new V(sx * mirror, sy, sz))
+  const pick = (...ids: string[]) => ids[Math.floor(rng() * ids.length)]
 
-  const monolith = (dim: number, x: number, z: number, h: number) => {
-    s.boxes.push({ min: new V(x - 1, 0, z - 1), max: new V(x + 1, h, z + 1), dim })
-    const g = new THREE.CylinderGeometry(0.75, 1.05, h, 7, Math.ceil(h / 0.8)); triUV(g, 5)
-    const seed = x + z
-    displace(g, (px, py, pz) => {
-      const r = 1 + (fbm(px * 0.9 + seed, py * 0.45, pz * 0.9) - 0.5) * 0.7, top = py > h / 2 - 0.01 ? -fbm(px * 2 + seed, pz * 2, 3) * 0.9 : 0
-      return [px * r, py + top + h / 2, pz * r]
-    })
-    mesh(g, m.rock[dim], x, 0, z)
-  }
-
-  const floater = (dim: number, x: number, y: number, z: number) => {
-    s.boxes.push({ min: new V(x - 2.1, y, z - 2.1), max: new V(x + 2.1, y + 0.5, z + 2.1), dim })
-    const g = new THREE.CylinderGeometry(2.7, 1.1, 2.2, 9, 5); triUV(g, 5)
-    displace(g, (px, py, pz) => { const r = 1 + (fbm(px * 0.8 + x, py * 0.6, pz * 0.8) - 0.5) * 0.6; return [px * r, py - 0.6 + (py < 1.09 ? (fbm(px, pz, 4) - 0.5) * 0.3 : 0), pz * r] })
-    mesh(g, m.rock[dim], x, y + 0.5, z)
-    const cap = new THREE.CircleGeometry(2.7, 9); cap.rotateX(-Math.PI / 2)
-    mesh(cap, m.ground[dim], x, y + 0.5, z, false)
-  }
-
-  const pebble = (dim: number, x: number, z: number, r: number) => {
-    const g = new THREE.IcosahedronGeometry(r, 1); displace(g, (px, py, pz) => { const k = 1 + (fbm(px * 3 + x, py * 3, pz * 3) - 0.5); return [px * k, py * k * 0.7, pz * k] })
-    mesh(g, m.rock[dim], x, r * 0.25, z)
-  }
-
+  const pit = (k: number) => k < 0.2
   for (let dim = 0; dim < N; dim++) {
     const k = i < 2 || dim === s.clear ? 0.3 : rng()
-    cliff(dim, -1); cliff(dim, 1)
-    if (k < 0.2) { floorPiece(dim, z0 - 10, z0); floorPiece(dim, z1, z0 - 30) } else floorPiece(dim, z1, z0)
-    for (let j = 0; j < 7; j++) pebble(dim, (rng() - 0.5) * (HW * 2 - 4), z1 + rng() * SEG, 0.25 + rng() * 0.5)
-    if (k > 0.6) for (let j = 0; j < 3; j++) monolith(dim, -HW + 4 + rng() * (HW * 2 - 8), z1 + 3 + rng() * (SEG - 6), 4 + rng() * 6)
-    if (rng() < 0.6) floater(dim, (rng() - 0.5) * 16, 3 + rng() * 4, z1 + 3 + rng() * (SEG - 6))
+    const onFloor = (x: number, z: number) => !pit(k) || !(z < z0 - 10 && z > z0 - 30)
+    const pieces = pit(k) ? [[z0 - 10, z0], [z1, z0 - 30]] : [[z1, z0]]
+    for (const [za, zb] of pieces) {
+      const len = zb - za, zm = (za + zb) / 2
+      s.boxes.push({ min: new V(-HW, -3, za), max: new V(HW, 0, zb), dim })
+      const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -1.52, zm, false)
+      const top = new THREE.PlaneGeometry(HW * 2, len); top.rotateX(-Math.PI / 2)
+      const uv = top.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setXY(n, uv.getX(n) * HW * 2 / 4, uv.getY(n) * len / 4)
+      mesh(top, w.lane[dim], 0, 0.002, zm, false)
+      const count = Math.round(len * HW * 2 * 45), g = new THREE.InstancedBufferGeometry()
+      g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a); g.instanceCount = count
+      const gm = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim]); track(dim, gm); s.grass.push(gm)
+      const gmesh = new THREE.Mesh(g, gm); gmesh.frustumCulled = false; gmesh.userData.dim = dim; add(gmesh, s.detail)
+    }
+
+    // cliffs
+    for (const side of [-1, 1]) {
+      let zz = z1
+      while (zz < z0 - 1) {
+        const id = pick("namaqualand_cliff_01", "namaqualand_cliff_02", "mountainside", "coastal_cliff_02"), m = w.models[id], sz = m.box.getSize(new V())
+        const rot = sz.x > sz.z ? Math.PI / 2 : 0, long = Math.max(sz.x, sz.z), thick = Math.min(sz.x, sz.z)
+        const sc = Math.min(SEG * 0.55 / long, 16 / sz.y), len = long * sc
+        place(id, dim, [mat4(side * (HW + 0.6 + thick * sc / 2), -1, zz + len / 2, rot + (side > 0 ? 0 : Math.PI), sc, sc * (0.9 + rng() * 0.3), sc)], s.group)
+        zz += len * 0.85
+      }
+      s.boxes.push({ min: new V(side > 0 ? HW : -HW - 1, -3, z1), max: new V(side > 0 ? HW + 1 : -HW, 16, z0), dim })
+    }
+
+    // ground cover
+    const spots = (n: number) => [...Array(n)].map(() => new V((rng() - 0.5) * (HW * 2 - 2), 0, z1 + rng() * SEG)).filter(p => onFloor(p.x, p.z))
+    const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, 0, p.z, rng() * 6.28, lo + rng() * (hi - lo))))
+    scatter("fern_02", 7, 0.7, 1.4); scatter("dandelion_01", 12, 0.8, 1.3); scatter("celandine_01", 30, 0.8, 1.5); scatter("periwinkle_plant", 6, 0.8, 1.3)
+    scatter("grass_medium_01", 40, 0.8, 1.6); scatter("grass_medium_02", 30, 0.8, 1.6); scatter("moss_01", 8, 0.8, 1.6)
+    scatter("shrub_02", 5, 0.9, 1.7); scatter("shrub_03", 3, 0.9, 1.6); scatter("dry_branches_medium_01", 2, 0.6, 1.1); scatter("tree_stump_01", 1, 0.8, 1.3)
+    place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, -0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)))
+
+    if (k > 0.6) for (let j = 0; j < 3; j++) {
+      const id = pick("namaqualand_boulder_03", "namaqualand_boulder_05", "boulder_01"), m = w.models[id], sz = m.box.getSize(new V())
+      const x = -HW + 4 + rng() * (HW * 2 - 8), z = z1 + 3 + rng() * (SEG - 6), h = 4 + rng() * 5, sc = h / sz.y, half = Math.max(0.8, Math.min(sz.x, sz.z) * sc * 0.3)
+      place(id, dim, [mat4(x, -0.1, z, rng() * 6.28, sc * 0.75, sc, sc * 0.75)], s.group)
+      s.boxes.push({ min: new V(x - half, 0, z - half), max: new V(x + half, h * 0.92, z + half), dim })
+    }
+    if (rng() < 0.6) {
+      const x = (rng() - 0.5) * 16, y = 3 + rng() * 4, z = z1 + 3 + rng() * (SEG - 6), id = pick("namaqualand_boulder_03", "namaqualand_boulder_05"), sz = w.models[id].box.getSize(new V())
+      s.boxes.push({ min: new V(x - 2.1, y, z - 2.1), max: new V(x + 2.1, y + 0.5, z + 2.1), dim })
+      place(id, dim, [mat4(x, y + 0.5 - 1.6, z, rng() * 6.28, 5.4 / Math.max(sz.x, sz.z), 1.6 / sz.y, 5.4 / Math.max(sz.x, sz.z))], s.group)
+      const cap = new THREE.CircleGeometry(2.6, 24); cap.rotateX(-Math.PI / 2); mesh(cap, w.lane[dim], x, y + 0.5, z, false)
+    }
     if (k > 0.35 && k <= 0.6) {
-      const pos = new V((rng() - 0.5) * (HW * 2 - 8), 0, z1 + 5 + rng() * (SEG - 10)), w = walker(m.foe, dim)
-      w.mesh.position.set(pos.x, 0, pos.z); s.group.add(w.mesh)
-      s.enemies.push({ mesh: w.mesh, legs: w.legs, turret: w.turret, pos, dim, hp: 12, fireT: 1 + rng() })
+      const pos = new V((rng() - 0.5) * (HW * 2 - 8), 0, z1 + 5 + rng() * (SEG - 10)), wk = walker(w.foe, dim)
+      wk.mesh.position.set(pos.x, 0, pos.z); s.group.add(wk.mesh)
+      s.enemies.push({ mesh: wk.mesh, legs: wk.legs, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng() })
     }
   }
 
+  // hills with trees behind the cliffs, shared by every dimension
   for (const side of [-1, 1]) {
-    const geo = new THREE.PlaneGeometry(70, SEG, 28, 16); geo.rotateX(-Math.PI / 2)
-    const p = geo.attributes.position, col: number[] = [], c = new THREE.Color()
-    for (let k = 0; k < p.count; k++) {
-      const wx = side * (HW + 9 + p.getX(k) + 35), wz = zc + p.getZ(k), h = hillY(wx, wz)
-      p.setXYZ(k, wx, h, wz)
-      const n = fbm(wx * 0.08, wz * 0.08, 9), rocky = Math.max(0, (h - 14) / 14 + (n - 0.5))
-      c.setRGB(0.2 + n * 0.22, 0.34 + n * 0.22, 0.12 + n * 0.08).lerp(new THREE.Color(0x7d766a), Math.min(1, rocky))
-      col.push(c.r, c.g, c.b)
+    const geo = new THREE.PlaneGeometry(90, SEG, 36, 20); geo.rotateX(-Math.PI / 2)
+    const p = geo.attributes.position, uv = geo.attributes.uv, rockW: number[] = []
+    for (let n = 0; n < p.count; n++) {
+      const wx = side * (HW + 6 + p.getX(n) + 45), wz = zc + p.getZ(n)
+      p.setXYZ(n, wx, hillY(wx, wz), wz); uv.setXY(n, wx / 6, wz / 6)
     }
-    geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); geo.computeVertexNormals()
-    const hill = new THREE.Mesh(geo, m.hill); hill.receiveShadow = true; s.group.add(hill)
-    const trees = new THREE.InstancedMesh(treeGeo, m.tree, 18), d = new THREE.Object3D()
-    for (let k = 0; k < 18; k++) {
-      const wx = side * (HW + 14 + rng() * 55), wz = zc + (rng() - 0.5) * SEG
-      d.position.set(wx, hillY(wx, wz) - 0.2, wz); d.rotation.y = rng() * 6; d.scale.set(1, 0.9 + rng() * 0.8, 1).multiplyScalar(1.4 + rng() * 1.6)
-      d.updateMatrix(); trees.setMatrixAt(k, d.matrix)
+    geo.computeVertexNormals()
+    const nrm = geo.attributes.normal
+    for (let n = 0; n < p.count; n++) rockW.push(Math.min(1, Math.max(0, (1 - nrm.getY(n) - 0.2) * 4 + (fbm(p.getX(n) * 0.1, p.getZ(n) * 0.1, 3) - 0.62))))
+    geo.setAttribute("aRock", new THREE.Float32BufferAttribute(rockW, 1))
+    mesh(geo, w.hill, 0, 0, 0, false)
+    for (const [hi, lo] of [["fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
+      const ms = [...Array(7)].map(() => {
+        const wx = side * (HW + 12 + rng() * 70), wz = zc + (rng() - 0.5) * SEG, sz = w.models[hi].box.getSize(new V()), sc = (10 + rng() * 9) / sz.y
+        return mat4(wx, hillY(wx, wz) - 0.3, wz, rng() * 6.28, sc)
+      })
+      for (const [id, list] of [[hi, s.trees.hi], [lo, s.trees.lo]] as const) for (const im of place(id, 0, ms, s.group)) {
+        const mats = Array.isArray(im.material) ? im.material : [im.material]; mats.forEach(m => untrack(0, [m])); list.push(im)
+      }
     }
-    trees.castShadow = true; s.group.add(trees)
   }
   return s
+}
+
+export const disposeSegment = (s: Seg) => {
+  s.group.removeFromParent()
+  s.geos.forEach(g => g.dispose())
+  for (let d = 0; d < N; d++) untrack(d, s.grass)
 }

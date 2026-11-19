@@ -1,0 +1,24 @@
+<!doctype html><body style="margin:0;background:#888"><script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three"
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js"
+const names = new URLSearchParams(location.search).get("m").split(",")
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(1280, 720); r.toneMapping = THREE.ACESFilmicToneMapping; document.body.appendChild(r.domElement)
+const scene = new THREE.Scene()
+const hdr = await new RGBELoader().loadAsync("/public/assets/kloofendal_48d_partly_cloudy_puresky.hdr"); hdr.mapping = THREE.EquirectangularReflectionMapping
+scene.background = hdr; scene.environment = hdr
+const sun = new THREE.DirectionalLight(0xfff0d0, 2); sun.position.set(3, 5, 4); scene.add(sun)
+const cam = new THREE.PerspectiveCamera(40, 1280 / 720, 0.1, 100)
+const info = []
+let x = 0
+for (const n of names) {
+  const g = await new GLTFLoader().loadAsync(`/public/assets/models/${n}.glb`), o = g.scene
+  const box = new THREE.Box3().setFromObject(o), s = 2 / Math.max(...box.getSize(new THREE.Vector3()).toArray()), c = box.getCenter(new THREE.Vector3())
+  o.scale.setScalar(s); o.position.set(x - c.x * s, -c.y * s, -c.z * s); x += 2.4; scene.add(o)
+  let tris = 0; o.traverse(m => { if (m.isMesh) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 })
+  info.push(n + ":" + Math.round(tris) + "[" + o.children.map(c => { let t = 0; c.traverse(m => { if (m.isMesh) t += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 }); return c.name + "/" + Math.round(t) }).join(",") + "]")
+}
+cam.position.set((x - 2.4) / 2, 0.4, 3 + names.length * 0.9); cam.lookAt((x - 2.4) / 2, 0, 0)
+r.render(scene, cam); document.title = info.join(" "); window.done = true
+</script>
