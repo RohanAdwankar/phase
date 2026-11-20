@@ -260,7 +260,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     // a planted TNT pile is hit like a sphere sized to the pile; hitting it sets it off
     let tntHit: Bomb | null = null
     for (const bm of bombs) if (bm.kind === "tnt" && bm.dim === a.dim) {
-      const rad = 0.5 + 0.12 * Math.sqrt(bm.n), cx = bm.pos.x - p.x, cy = bm.pos.y + 0.3 - p.y, cz = bm.pos.z - p.z, proj = cx * dir.x + cy * dir.y + cz * dir.z
+      const rad = 1.0 + 0.24 * Math.sqrt(bm.n), cx = bm.pos.x - p.x, cy = bm.pos.y + 0.6 - p.y, cz = bm.pos.z - p.z, proj = cx * dir.x + cy * dir.y + cz * dir.z
       if (proj < 0 || proj > Math.min(tMin, len) + rad) continue
       if (cx * cx + cy * cy + cz * cz - proj * proj < rad * rad && proj - rad < tMin) { tMin = Math.max(0, proj - rad); tntHit = bm }
     }
@@ -285,6 +285,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const tntMat = new THREE.MeshToonMaterial({ color: 0xd8321e, gradientMap: gradient }), bandMat = new THREE.MeshToonMaterial({ color: 0xf4eadb, gradientMap: gradient }), blackMat = new THREE.MeshToonMaterial({ color: 0x24262a, gradientMap: gradient })
   const fuseMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa030).multiplyScalar(3), toneMapped: false })
   const gren = () => { const m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), new THREE.MeshToonMaterial({ color: 0x3f5a2c, gradientMap: gradient })), (() => { const s = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), fuseMat); s.position.set(0, 0.15, 0); return s })()); return m }
+  const TS = 2 // TNT scale: crates are 0.84 m cubes
   const tntMesh = (n: number) => {
     const m = new THREE.Group()
     for (let k = 0; k < n; k++) {
@@ -293,6 +294,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const a = k * 2.4, ring = Math.min(k, 1) * 0.3; s.position.set(Math.cos(a) * ring, 0.21 + Math.floor(k / 3) * 0.4, Math.sin(a) * ring); s.rotation.y = k * 0.9; m.add(s)
     }
     const sp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), fuseMat); sp.position.y = 0.3 + Math.floor((n - 1) / 3) * 0.4; sp.name = "spark"; m.add(sp)
+    m.scale.setScalar(TS)
     return m
   }
   const explode = (pos: THREE.Vector3, dim: number, radius: number, dmg: number, shake: number) => {
@@ -327,8 +329,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()); let t = 14
     for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) t = Math.min(t, rayCollider(o, dir, b))
     for (let s = 1; s < t; s += 0.5) if (o.y + dir.y * s < terrainY(o.x + dir.x * s, o.z + dir.z * s)) { t = s; break }
-    const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.4)); p.y = Math.max(p.y, terrainY(p.x, p.z))
-    const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 1.8)
+    const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.8)); p.y = Math.max(p.y, terrainY(p.x, p.z))
+    const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 3.2)
     st.tCd = 0.7; sfx.play("clink")
     if (near) { near.n++; near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
     const m = tntMesh(1); m.position.copy(p); scene.add(m)
