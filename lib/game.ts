@@ -64,8 +64,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const sword = makeSword(world.metal)
   type Weapon = "pistol" | "bow" | "sword"
   let weapon: Weapon = "pistol"
-  cam.add(bow.root, pistol.root, sword.root); bow.root.visible = false; sword.root.visible = false
-  const swap = (w: Weapon) => { if (w === weapon) return; weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; sword.root.visible = w === "sword" }
+  const swordPivot = new THREE.Group(); swordPivot.position.set(0, -0.4, 0); swordPivot.add(sword.root); swordPivot.visible = false
+  cam.add(bow.root, pistol.root, swordPivot); bow.root.visible = false
+  const swap = (w: Weapon) => { if (w === weapon) return; weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
@@ -73,7 +74,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, swingDir: 1, swingHit: false, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, swingSide: 1, swingA: 0.3, swingHit: false, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -160,13 +161,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.kick = 1; st.flash = 0.05; pistol.flash.material.rotation = Math.random() * 6
   }
   // sword: a swing lasts 0.42 s and cuts at its midpoint, hitting every walker of this dimension inside the arc in front of you
-  const SWING = 0.42
+  const SWING = 0.6
   const swingCut = () => {
     const p = st.pos, fwd = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); let any = false
     for (const c of nearChunks(1)) for (const e of [...c.enemies]) {
       if (e.dim !== nd()) continue
       const dx = e.pos.x - p.x, dz = e.pos.z - p.z, dist = Math.hypot(dx, dz)
-      if (dist > 5.2 || (dist > 1.6 && (dx * fwd.x + dz * fwd.z) / dist < 0.35)) continue
+      if (dist > 6.5 || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
       any = true; e.hp -= 8; e.hitT = 0.2; e.pos.x += dx / dist * 1.2; e.pos.z += dz / dist * 1.2
       fx.spark(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 28, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 1, DUST, 0.6)
       if (e.hp <= 0) killWalker(e)
@@ -198,6 +199,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   // each hit remembers where it came from in the world, so the flash can point at the shooter as the player turns
   const hurts: { x: number; z: number; t: number }[] = []
+  // a walker can only shoot when no wall of its dimension lies between it and the player
+  const clearShot = (e: Enemy) => {
+    const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
+    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayBox(from, dir, b.min, b.max) < len) return false
+    return true
+  }
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of c.enemies) {
@@ -206,14 +213,17 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       const moving = dist < 70 && dist > 9
       if (moving) {
+        // walkers are blocked by every wall and stone of their own dimension, sliding along it when they hit
+        const R = 1.7, blocked = (x: number, z: number) => { for (const ch of nearChunks(3)) for (const b of ch.boxes) if (b.dim === e.dim && b.max.y > e.pos.y + 1.5 && b.min.y < e.pos.y + 2 && x > b.min.x - R && x < b.max.x + R && z > b.min.z - R && z < b.max.z + R) return true; return false }
         const nx = e.pos.x + dx / dist * 2.5 * dt, nz = e.pos.z + dz / dist * 2.5 * dt
-        if (!c.boxes.some(b => b.dim === e.dim && nx > b.min.x - 1 && nx < b.max.x + 1 && nz > b.min.z - 1 && nz < b.max.z + 1 && b.max.y > e.pos.y + 3)) { e.pos.x = nx; e.pos.z = nz }
+        if (!blocked(nx, e.pos.z)) e.pos.x = nx
+        if (!blocked(e.pos.x, nz)) e.pos.z = nz
       }
       e.pos.y = terrainY(e.pos.x, e.pos.z)
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
       e.update(dt, moving, time * 5)
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
-      if (e.dim === nd() && dist < 45 && (e.fireT -= dt) <= 0) {
+      if (e.dim === nd() && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
         e.fireT = 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12)
@@ -289,9 +299,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (weapon === "sword") {
       if (st.swing > 0) {
         const before = st.swing; st.swing -= DT / SWING
-        if (!st.swingHit && before > 0.5 && st.swing <= 0.5) { st.swingHit = true; swingCut() }
+        if (!st.swingHit && before > 0.55 && st.swing <= 0.55) { st.swingHit = true; swingCut() }
         if (st.swing <= 0) { st.swing = 0; st.fireT = 0.06 }
-      } else if (st.fire && st.fireT <= 0) { st.swing = 1; st.swingDir = -st.swingDir; st.swingHit = false; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 4; st.vel.z += f.z * 4 }
+      } else if (st.fire && st.fireT <= 0) { st.swing = 1; st.swingSide = st.swingA >= 0 ? 1 : -1; st.swingHit = false; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 6; st.vel.z += f.z * 6 }
     }
     else if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
     else if (st.fire && st.fireT <= 0) st.draw = Math.min(1, st.draw + DT / 0.55)
@@ -317,9 +327,19 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (!dbg.freezeVm) {
       const sway = st.lookX * 0.4, lift = st.lookY * 0.4, bobY = Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0)
       if (weapon === "sword") {
-        const s = 1 - st.swing, swinging = st.swing > 0, e = 1 - (1 - s) * (1 - s), arc = swinging ? Math.sin(Math.PI * s) : 0
-        sword.root.position.set(0.2 + sway + st.swingDir * (swinging ? 0.18 - 0.4 * e : 0) * (swinging ? 1 : 0), -0.3 + lift + bobY + arc * 0.04, -0.62 - arc * 0.12)
-        sword.root.rotation.set(-0.55 - arc * 0.55 + st.lookY * 0.8, 0.15 - st.lookX * 0.8 - (swinging ? st.swingDir * (0.9 - 1.9 * e) : 0), (swinging ? st.swingDir * (0.45 - 1.4 * e) : 0.2) + (st.slide ? -0.12 : 0))
+        // wind up on the near side, slash across the whole screen to the far side, then recover; the next swing starts from where this one ended
+        const t = 1 - st.swing, S = st.swingSide, sm = (u: number) => u * u * (3 - 2 * u), eo = (u: number) => 1 - (1 - u) * (1 - u)
+        let a: number, lift: number
+        if (st.swing <= 0) { st.swingA += (0.3 - st.swingA) * Math.min(1, dt * 1.6); a = st.swingA; lift = 0 }
+        else if (t < 0.24) { const u = eo(t / 0.24); a = S * (0.35 + 0.75 * u); lift = u }
+        else if (t < 0.7) { const u = sm((t - 0.24) / 0.46); a = S * (1.1 - 2.35 * u); lift = 1 - u * 1.3 }
+        else { const u = eo((t - 0.7) / 0.3); a = -S * (1.25 - 0.85 * u); lift = -0.3 * (1 - u) }
+        if (st.swing > 0) st.swingA = a
+        // the blade points forward and up; yawing the pivot about the body sweeps its tip across the whole view
+        swordPivot.position.set(0, -0.42, 0.1)
+        swordPivot.rotation.set(st.lookY * 0.8, -a * 0.95 - st.lookX * 0.8, 0, "YXZ")
+        sword.root.position.set(0.05 + sway, 0.02 + bobY, -0.45)
+        sword.root.rotation.set(-1.05 + lift * 0.5, 0, a * 0.5 + (st.slide ? -0.12 : 0), "YXZ")
       } else if (weapon === "bow") {
         bow.root.position.set(0.15 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.2 + lift + bobY, -0.7 + st.kick * 0.03 + st.draw * 0.05)
         bow.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
