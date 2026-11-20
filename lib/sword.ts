@@ -10,11 +10,8 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 export const makeSword = (armor: PBR) => {
   const root = new THREE.Group()
   const trimNormal = armor.normalMap.clone(); trimNormal.repeat.set(0.4, 0.4); trimNormal.needsUpdate = true
-  const gold = new THREE.MeshStandardMaterial({ color: 0xcfb273, metalness: 0.8, roughness: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.25, 0.25) })
-  const grey = new THREE.MeshStandardMaterial({ color: 0x9ba1a9, metalness: 0.85, roughness: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.25, 0.25) })
-  const suit = new THREE.MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.82, metalness: 0.1, normalMap: armor.normalMap, normalScale: new THREE.Vector2(0.6, 0.6) })
-  const orange = new THREE.MeshStandardMaterial({ color: 0xe0561a, roughness: 0.4, metalness: 0.4 })
-  const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a10).multiplyScalar(1.6), toneMapped: false })
+  const suit = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.75, metalness: 0.1 })
+  const gold = suit, grey = suit, orange = suit, glow = suit
 
   const size = new V(0.3, 0.14, 0.05)
   const top = size.y * 0.5, bottom = -top, gz0 = 0
@@ -48,12 +45,6 @@ export const makeSword = (armor: PBR) => {
   const arm = (pts: THREE.Vector3[], wristR: number, elbowR: number) => {
     const c = new THREE.CatmullRomCurve3(pts)
     tube(c, wristR, elbowR, suit)
-    ;[0.12, 0.34, 0.56, 0.78].forEach((t, k) => {
-      const r = lerp(wristR, elbowR, t) + 0.0035, l = k === 0 ? 0.03 : 0.022, mat = k % 2 ? grey : gold, q = align(c.getTangent(t))
-      add(new THREE.CylinderGeometry(r, r + 0.006, l, 28), mat, c.getPoint(t), q)
-      for (const s of [-1, 1]) add(new THREE.TorusGeometry(r + 0.002, 0.0055, 8, 28), mat, c.getPoint(t).addScaledVector(c.getTangent(t), s * l * 0.5), align(c.getTangent(t), new V(0, 0, 1)))
-      add(new THREE.TorusGeometry(r + 0.0035, 0.0028, 6, 28), glow, c.getPoint(t + 0.045).clone(), align(c.getTangent(t), new V(0, 0, 1)))
-    })
   }
 
   // fingers wrap around the grip along an ellipse in the horizontal plane
@@ -62,7 +53,6 @@ export const makeSword = (armor: PBR) => {
     const pts = [0, 1, 2, 3].map(k => { const a = lerp(a0, a1, k / 3); return new V(gx + Math.sin(a) * rx * scale, y, gz + Math.cos(a) * rz * scale) })
     pts.forEach((p, k) => {
       add(new THREE.SphereGeometry(r * (1 - k * 0.06), 12, 10), mat, p)
-      if (k && k < 3) add(new THREE.TorusGeometry(r * 0.98, 0.0032, 6, 16), grey, p.clone().lerp(pts[k - 1], 0.25), align(p.clone().sub(pts[k - 1]), new V(0, 0, 1)))
       if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.06), r * (1.04 - k * 0.06), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
     })
   }
@@ -77,7 +67,6 @@ export const makeSword = (armor: PBR) => {
   rightY.forEach(y => finger(y, 30 * rad, 215 * rad, 1, 0.0115, suit))
   add(rbox(0.05, size.y * 0.62, 0.052, 0.014), suit, new V(gx + 0.03, bottom * 0.4, gz + 0.045), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
   add(rbox(0.012, size.y * 0.56, 0.055, 0.005), suit, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
-  for (const y of rightY) add(rbox(0.014, 0.017, 0.022, 0.004), grey, new V(gx + 0.043, y, gz + 0.075))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
   arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.017, 0.026)
