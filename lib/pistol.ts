@@ -92,12 +92,9 @@ export const makePistol = (flashMap: THREE.Texture, armor: PBR) => {
   part(bx(0.046, 0.038, 0.058), slide, 0, -0.108, 0.058, -0.2)             // magazine base
   part(bx(0.013, 0.013, 0.07), dark, 0, -0.004, -0.05); part(bx(0.013, 0.04, 0.013), dark, 0, 0.014, -0.082) // trigger guard
   part(bx(0.022, 0.026, 0.05), slide, 0, 0.01, -0.24)                       // under-rail
-  const barrelMat = dark, by = 0.052, bz = -0.25
-  const shroud = new THREE.CylinderGeometry(0.032, 0.036, 0.2, 6); part(shroud, body, 0, by, bz - 0.08, Math.PI / 2)
-  part(new THREE.CylinderGeometry(0.044, 0.044, 0.04, 6), slide, 0, by, bz - 0.18, Math.PI / 2)
-  part(new THREE.CylinderGeometry(0.02, 0.02, 0.012, 10), new THREE.MeshBasicMaterial({ color: 0x000000 }), 0, by, bz - 0.203, Math.PI / 2)
-  void barrelMat
-  const muzzle = new THREE.Object3D(); muzzle.position.set(0, by, bz - 0.22); root.add(muzzle)
+  // the slide ends flush with the frame: just a short muzzle cap, no long barrel
+  part(bx(0.046, 0.03, 0.02), dark, 0, 0.078, -0.25)
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.078, -0.265); root.add(muzzle)
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
   flash.scale.setScalar(0.2); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
