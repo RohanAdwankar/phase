@@ -14,17 +14,20 @@ float f2(vec2 p){ return 0.5 * n2(p) + 0.25 * n2(p * 2.03) + 0.125 * n2(p * 4.1)
 
 // Two PBR layers blended by a rock weight: a vertex attribute (hills) or world-space noise (lane). A low frequency
 // macro tint breaks up texture repetition.
-export const splatMaterial = (a: PBR, b: PBR, o: { scaleB: number; attr?: boolean; tint?: number }) => {
+export const splatMaterial = (a: PBR, b: PBR, o: { scaleB: number; attr?: boolean; tint?: number; c?: PBR }) => {
   const m = new THREE.MeshStandardMaterial({ map: a.map, normalMap: a.normalMap, aoMap: a.arm, roughnessMap: a.arm, roughness: 1, metalness: 0, color: o.tint ?? 0xffffff, transparent: true })
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { mapB: { value: b.map }, normalMapB: { value: b.normalMap }, armB: { value: b.arm }, scaleB: { value: o.scaleB } })
+    Object.assign(sh.uniforms, { mapB: { value: b.map }, normalMapB: { value: b.normalMap }, armB: { value: b.arm }, scaleB: { value: o.scaleB }, mapC: { value: o.c?.map ?? b.map } })
     sh.vertexShader = (o.attr ? "attribute float aRock;\n" : "") + "varying float vW; varying vec3 vWP;\n" + sh.vertexShader.replace("#include <begin_vertex>",
       `#include <begin_vertex>\n vW = ${o.attr ? "aRock" : "0.0"}; vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
     const mixN = (s: string, tex: string, uv: string, extra = "") => s.replace(`texture2D( ${tex}, ${uv} )`, `mix(texture2D( ${tex}, ${uv} ), texture2D( ${tex}B, ${uv} * scaleB )${extra}, w)`)
-    sh.fragmentShader = `uniform sampler2D mapB, normalMapB, armB; uniform float scaleB; varying float vW; varying vec3 vWP;\n${NOISE}\n` + sh.fragmentShader
+    sh.fragmentShader = `uniform sampler2D mapB, normalMapB, armB, mapC; uniform float scaleB; varying float vW; varying vec3 vWP;\n${NOISE}\n` + sh.fragmentShader
       .replace("#include <map_fragment>", `float w = clamp(vW${o.attr ? "" : " + smoothstep(0.52, 0.68, f2(vWP.xz * 0.045))"}, 0.0, 1.0);
-        diffuseColor *= mix(texture2D(map, vMapUv), texture2D(mapB, vMapUv * scaleB), w);
-        diffuseColor.rgb *= 0.78 + 0.5 * f2(vWP.xz * 0.02 + 7.0);`)
+        vec4 base4 = mix(texture2D(map, vMapUv), texture2D(mapB, vMapUv * scaleB), w);
+        ${o.c ? "base4 = mix(base4, texture2D(mapC, vMapUv * 0.9), smoothstep(0.5, 0.66, f2(vWP.xz * 0.07 + 31.0)) * 0.9);" : ""}
+        float fine = dot(texture2D(map, vMapUv * 8.7).rgb, vec3(0.33));
+        diffuseColor *= base4;
+        diffuseColor.rgb *= (0.62 + 0.9 * f2(vWP.xz * 0.02 + 7.0)) * (0.75 + 0.7 * fine) * (0.85 + 0.3 * f2(vWP.xz * 0.5));`)
       .replace("#include <roughnessmap_fragment>", "float roughnessFactor = roughness * mix(texture2D(roughnessMap, vRoughnessMapUv).g, texture2D(armB, vRoughnessMapUv * scaleB).g, w);")
       .replace("#include <aomap_fragment>", THREE.ShaderChunk.aomap_fragment.replace("texture2D( aoMap, vAoMapUv ).r", "mix(texture2D(aoMap, vAoMapUv).r, texture2D(armB, vAoMapUv * scaleB).r, w)"))
       .replace("#include <normal_fragment_maps>", mixN(THREE.ShaderChunk.normal_fragment_maps.replace(/texture2D\( normalMap, vNormalMapUv \)/g, "texture2D( normalMap, vNormalMapUv )"), "normalMap", "vNormalMapUv"))
@@ -37,21 +40,24 @@ export const pbrMaterial = (p: PBR, o: { tint?: number; metalness?: number; norm
   color: o.tint ?? 0xffffff, normalScale: new THREE.Vector2(o.normalScale ?? 1, o.normalScale ?? 1), transparent: true,
 })
 
+// gentle rolling relief shared by the ground mesh and the grass shader so blades sit on the surface
+export const terrainY = (x: number, z: number) => 0.22 * (Math.sin(x * 0.23 + Math.sin(z * 0.11) * 1.7) * 0.5 + Math.sin(z * 0.19 + x * 0.07) * 0.5) + 0.08 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
+const TERRAIN_GLSL = `float terrainY(vec2 p){ return 0.22 * (sin(p.x * 0.23 + sin(p.y * 0.11) * 1.7) * 0.5 + sin(p.y * 0.19 + p.x * 0.07) * 0.5) + 0.08 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
 export const uTime = { value: 0 }
 export const uPlayer = { value: new THREE.Vector3() }
 const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
 
 // Grass blades generated entirely in the vertex shader from the instance id, so a patch costs no CPU or memory per blade.
-export const grassMaterial = (patch: THREE.Vector4, tint: number) => {
+export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = false) => {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8, color: tint, transparent: true })
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { uTime, uPlayer, uPatch: { value: patch } })
-    sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
+    sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${TERRAIN_GLSL}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
       float id = float(gl_InstanceID);
-      vec3 base = vec3(uPatch.x + hh(id * 1.31 + 7.0) * uPatch.z, 0.0, uPatch.y + hh(id * 2.17 + 3.0) * uPatch.w);
+      vec3 base = vec3(uPatch.x + hh(id * 1.31 + 7.0) * uPatch.z, 0.0, uPatch.y + hh(id * 2.17 + 3.0) * uPatch.w); base.y = terrainY(base.xz);
       float dist = distance(base.xz, uPlayer.xz), rk = hh(id * 7.1 + 2.0), rh = hh(id * 5.3 + 9.0), ang = hh(id * 3.7 + 1.0) * 6.2832;
-      float keep = step(rk, clamp(1.0 - (dist - 6.0) / 30.0, 0.03, 1.0));
-      float sc = (0.42 + rh * 0.75) * keep;
+      float keep = step(rk, clamp(1.0 - (dist - 4.0) / ${undergrowth ? "12.0" : "30.0"}, 0.0, 1.0));
+      float sc = (${undergrowth ? "0.2 + rh * 0.25" : "0.42 + rh * 0.75"}) * keep;
       float k = pow(position.y * 1.6, 2.0);
       vec3 p = vec3(position.x, position.y, position.z) * sc;
       p.x += (sin(uTime * 1.7 + base.x * 0.35 + base.z * 0.27) * 0.16 + sin(uTime * 3.1 + base.x * 1.3) * 0.03) * k * sc;

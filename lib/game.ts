@@ -3,7 +3,8 @@ import { makePost } from "./post"
 import { loadSky, loadPistol } from "./assets"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
-import { makeViewmodel, Enemy } from "./actors"
+import { Enemy } from "./actors"
+import { makeViewmodel } from "./viewmodel"
 import { N } from "./materials"
 import { buildSegment, disposeSegment, loadWorld, Box, Seg, HW, SEG } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
@@ -60,7 +61,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   const post = makePost(renderer, scene, cam)
 
-  const fx = makeFx(scene), vm = makeViewmodel(flashTexture(), pistol)
+  const dbg = { freezeVm: false }
+  const fx = makeFx(scene), vm = makeViewmodel(flashTexture(), pistol, world.metal)
   cam.add(vm.root)
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
@@ -211,11 +213,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.kick = Math.max(0, st.kick - dt * 14); st.hit = Math.max(0, st.hit - dt); st.hurt = Math.max(0, st.hurt - dt); st.flash = Math.max(0, st.flash - dt)
     st.bob += dt * speed * (st.ground && !st.slide ? 1 : 0) * 0.9
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
-    cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
-    cam.rotation.set(st.pitch, st.yaw, st.roll)
+    if (!dbg.freezeVm) cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
+    if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
     cam.fov += (80 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
-    vm.root.position.set(0.17 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.4 + st.kick * 0.035)
-    vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.1 - st.lookX * 0.8, st.slide ? -0.12 : 0)
+    if (!dbg.freezeVm) vm.root.position.set(0.15 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.55 + st.kick * 0.035)
+    if (!dbg.freezeVm) vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
     vm.flash.material.opacity = st.flash > 0 ? 1 : 0; vm.light.intensity = st.flash > 0 ? 6 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p)
@@ -265,7 +267,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   gen(0); gen(1); gen(2)
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, vm, dbg, cam, scene, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()

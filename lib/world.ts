@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import { fbm } from "./noise"
 import { PBR, Model, loadPBR, loadModel } from "./assets"
-import { N, track, untrack, pbrMaterial, splatMaterial, grassMaterial } from "./materials"
+import { N, track, untrack, pbrMaterial, splatMaterial, grassMaterial, terrainY } from "./materials"
 import { Enemy, makeFoeMats, walker } from "./actors"
 
 const V = THREE.Vector3
@@ -19,7 +19,7 @@ export const loadWorld = async () => {
   const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await loadModel(id)] as const))
   const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await loadModel("pine_sapling_small_lo")
   const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
-  const lane = per(i => splatMaterial(biome[i][0], biome[i][1], { scaleB: 0.8, tint: TINT[i] }))
+  const lane = per(i => splatMaterial(biome[i][0], biome[i][1], { scaleB: 0.8, tint: TINT[i], c: biome[(i + 2) % 5][0] }))
   const body = per(i => pbrMaterial(cliff, { tint: TINT[i] }))
   const rockMat = per(i => pbrMaterial(rock, { tint: TINT[i] }))
   const cache = new Map<string, THREE.Material>()
@@ -93,14 +93,19 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     for (const [za, zb] of pieces) {
       const len = zb - za, zm = (za + zb) / 2
       s.boxes.push({ min: new V(-HW, -3, za), max: new V(HW, 0, zb), dim })
-      const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -1.52, zm, false)
-      const top = new THREE.PlaneGeometry(HW * 2, len); top.rotateX(-Math.PI / 2)
+      const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -2.1, zm, false)
+      const top = new THREE.PlaneGeometry(HW * 2, len, 48, Math.ceil(len * 1.2)); top.rotateX(-Math.PI / 2)
+      for (let n = 0; n < top.attributes.position.count; n++) top.attributes.position.setY(n, terrainY(top.attributes.position.getX(n), zm + top.attributes.position.getZ(n)))
+      top.computeVertexNormals()
       const uv = top.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setXY(n, uv.getX(n) * HW * 2 / 4, uv.getY(n) * len / 4)
       mesh(top, w.lane[dim], 0, 0.002, zm, false)
       const count = Math.round(len * HW * 2 * 45), g = new THREE.InstancedBufferGeometry()
       g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a); g.instanceCount = count
       const gm = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim]); track(dim, gm); s.grass.push(gm)
       const gmesh = new THREE.Mesh(g, gm); gmesh.frustumCulled = false; gmesh.userData.dim = dim; add(gmesh, s.detail)
+      const g2 = new THREE.InstancedBufferGeometry(); g2.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g2.setAttribute(name, a); g2.instanceCount = Math.round(len * HW * 2 * 70)
+      const gm2 = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim], true); track(dim, gm2); s.grass.push(gm2)
+      const under = new THREE.Mesh(g2, gm2); under.frustumCulled = false; add(under, s.detail)
     }
 
     // cliffs
