@@ -7,17 +7,14 @@ const V = THREE.Vector3
 const rbox = (w: number, h: number, d: number, r = 0.01) => new RoundedBoxGeometry(w, h, d, 3, r)
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
-export const makePistol = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferGeometry; mat: THREE.Material; box: THREE.Box3 }, armor: PBR) => {
+export const makePistol = (flashMap: THREE.Texture, armor: PBR) => {
   const root = new THREE.Group()
   const solid = <T extends THREE.Material>(m: T) => { m.transparent = false; m.side = THREE.DoubleSide; return m }
   const trimNormal = armor.normalMap.clone(); trimNormal.repeat.set(0.4, 0.4); trimNormal.needsUpdate = true
   const suit = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.75, metalness: 0.1 })
   const gold = suit, grey = suit, orange = suit, glow = suit
 
-  const size = pistol.box.getSize(new V())
-  const gun = new THREE.Mesh(pistol.geo, pistol.mat)
-  gun.rotation.y = Math.PI / 2; gun.position.set(0, -pistol.box.min.y - size.y * 0.5, pistol.box.min.x + 0.07)
-  root.add(gun)
+  const size = new V(0.3, 0.14, 0.05)
   const len = size.x, top = size.y * 0.5, bottom = -top
 
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, p: THREE.Vector3, q?: THREE.Quaternion) => {
@@ -82,16 +79,28 @@ export const makePistol = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferG
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
   arm([new V(gx + 0.03, bottom * 0.42, gz + 0.09), new V(gx + 0.06, bottom * 1.05, gz + 0.2), new V(gx + 0.1, -0.17, gz + 0.4), new V(gx + 0.17, -0.36, gz + 0.72)], 0.019, 0.031)
 
-  // a big, chunky barrel: a thick shroud out of the slide ending in a wide muzzle ring
-  const barrelMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1f, roughness: 0.5, metalness: 0.45, flatShading: true })
-  const by = size.y * 0.25 - 0.012, bz = -len * 0.5
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.17, 8), barrelMat); barrel.rotation.x = Math.PI / 2; barrel.position.set(0, by, bz - 0.04); root.add(barrel)
-  const muzRing = new THREE.Mesh(new THREE.CylinderGeometry(0.039, 0.039, 0.035, 8), barrelMat); muzRing.rotation.x = Math.PI / 2; muzRing.position.set(0, by, bz - 0.135); root.add(muzRing)
-  const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 12), new THREE.MeshBasicMaterial({ color: 0x000000 })); hole.rotation.x = Math.PI / 2; hole.position.set(0, by, bz - 0.153); root.add(hole)
-  const muzzle = new THREE.Object3D(); muzzle.position.set(0, by, bz - 0.17); root.add(muzzle)
+  // the blaster: a chunky angular body, a heavy faceted barrel and a slanted grip, all matte black to match the hands
+  const body = new THREE.MeshStandardMaterial({ color: 0x1c1d21, roughness: 0.55, metalness: 0.35, flatShading: true })
+  const slide = new THREE.MeshStandardMaterial({ color: 0x2b2d33, roughness: 0.5, metalness: 0.4, flatShading: true })
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0f1013, roughness: 0.6, metalness: 0.3, flatShading: true })
+  const part = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; root.add(m); return m }
+  const bx = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d)
+  part(bx(0.064, 0.062, 0.3), body, 0, 0.032, -0.1)                        // frame
+  part(bx(0.054, 0.034, 0.28), slide, 0, 0.078, -0.1)                       // top slide
+  part(bx(0.02, 0.014, 0.05), dark, 0, 0.1, 0.03); part(bx(0.012, 0.016, 0.014), dark, 0, 0.104, -0.23) // sights
+  part(bx(0.052, 0.12, 0.064), body, 0, -0.04, 0.04, -0.2)                  // grip, raked back
+  part(bx(0.046, 0.038, 0.058), slide, 0, -0.108, 0.058, -0.2)             // magazine base
+  part(bx(0.013, 0.013, 0.07), dark, 0, -0.004, -0.05); part(bx(0.013, 0.04, 0.013), dark, 0, 0.014, -0.082) // trigger guard
+  part(bx(0.022, 0.026, 0.05), slide, 0, 0.01, -0.24)                       // under-rail
+  const barrelMat = dark, by = 0.052, bz = -0.25
+  const shroud = new THREE.CylinderGeometry(0.032, 0.036, 0.2, 6); part(shroud, body, 0, by, bz - 0.08, Math.PI / 2)
+  part(new THREE.CylinderGeometry(0.044, 0.044, 0.04, 6), slide, 0, by, bz - 0.18, Math.PI / 2)
+  part(new THREE.CylinderGeometry(0.02, 0.02, 0.012, 10), new THREE.MeshBasicMaterial({ color: 0x000000 }), 0, by, bz - 0.203, Math.PI / 2)
+  void barrelMat
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, by, bz - 0.22); root.add(muzzle)
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
   flash.scale.setScalar(0.2); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
-  root.scale.setScalar(1.7); root.position.set(0.14, -0.13, -0.32)
-  return { root, muzzle, flash, light, eject: new V(0.03, size.y * 0.3, -len * 0.1) }
+  root.scale.setScalar(1.4); root.position.set(0.14, -0.13, -0.32)
+  return { root, muzzle, flash, light, eject: new V(0.03, 0.08, -0.02) }
 }

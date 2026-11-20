@@ -1,6 +1,5 @@
 import * as THREE from "three"
 import { makePost } from "./post"
-import { loadPistol } from "./assets"
 import { makeSky, SUN, skyTime } from "./sky"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
@@ -45,7 +44,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   if (signal.aborted) return () => {}
   const ctx = hud.getContext("2d")!
   hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
-  const [world, pistolModel] = await Promise.all([loadWorld(), loadPistol()])
+  const world = await loadWorld()
   if (signal.aborted) return () => {}
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -72,7 +71,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   const dbg = { freezeVm: false, hideHint: false, hideHud: false, lockScale: 0 }
   const sfx = createSfx()
-  const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), pistolModel, world.metal)
+  const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), world.metal)
   const sword = makeSword(world.metal)
   type Weapon = "pistol" | "bow" | "sword"
   let weapon: Weapon = "pistol"

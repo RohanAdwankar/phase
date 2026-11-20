@@ -47,26 +47,3 @@ export const loadSky = async () => {
   const sun = new THREE.Vector3(Math.cos(theta) * Math.cos(phi), Math.sin(theta), Math.cos(theta) * Math.sin(phi))
   return { tex, sun }
 }
-
-// The scan holds two pistols, spare magazines and a cartridge in one mesh. Split it into welded components and keep
-// the lower pistol (wooden grip) without the magazine and cartridge.
-export const loadPistol = async (): Promise<{ geo: THREE.BufferGeometry; mat: THREE.Material; box: THREE.Box3 }> => {
-  const m = await loadModel("service_pistol"), src = m.parts[0], pos = src.geo.attributes.position, idx = src.geo.index!
-  const key = (i: number) => `${Math.round(pos.getX(i) * 1e5)},${Math.round(pos.getY(i) * 1e5)},${Math.round(pos.getZ(i) * 1e5)}`
-  const parent = new Map<string, string>(), find = (k: string): string => { let r = k; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(k, r); return r }
-  for (let i = 0; i < pos.count; i++) { const k = key(i); if (!parent.has(k)) parent.set(k, k) }
-  for (let t = 0; t < idx.count; t += 3) { const a = find(key(idx.getX(t))); for (const k of [1, 2]) parent.set(find(key(idx.getX(t + k))), a) }
-  const comps = new Map<string, { tris: number[]; box: THREE.Box3 }>()
-  for (let t = 0; t < idx.count; t += 3) {
-    const r = find(key(idx.getX(t))), c = comps.get(r) ?? { tris: [], box: new THREE.Box3() }
-    c.tris.push(t); for (let k = 0; k < 3; k++) c.box.expandByPoint(new THREE.Vector3().fromBufferAttribute(pos, idx.getX(t + k))); comps.set(r, c)
-  }
-  const keep: number[] = [], box = new THREE.Box3()
-  for (const c of comps.values()) {
-    const ctr = c.box.getCenter(new THREE.Vector3()), sz = c.box.getSize(new THREE.Vector3())
-    const cartridge = Math.max(sz.x, sz.y, sz.z) < 0.04 && ctr.y < 0.035 && ctr.x > 0.03
-    if (ctr.y < 0.085 && ctr.x > -0.06 && !cartridge) { keep.push(...c.tris); box.union(c.box) }
-  }
-  const geo = src.geo.clone(); geo.setIndex(keep.map(t => [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)]).flat())
-  return { geo, mat: src.mat, box }
-}

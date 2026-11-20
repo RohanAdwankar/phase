@@ -15,7 +15,7 @@ const get = async (url, file) => {
 
 const textures = { aerial_grass_rock: "2k", leafy_grass: "2k", rock_face: "2k", cliff_side: "2k", green_metal_rust: "2k", rusty_metal_02: "1k", metal_plate: "1k", forrest_ground_01: "2k", dry_ground_rocks: "1k" }
 const hdris = { kloofendal_48d_partly_cloudy_puresky: "2k" }
-const models = { service_pistol: 0, bolt_action_rifle_7_62: 0, boulder_01: 9000, namaqualand_boulder_02: 9000, namaqualand_boulder_03: 9000, namaqualand_boulder_04: 9000, namaqualand_boulder_05: 9000,
+const models = { boulder_01: 9000, namaqualand_boulder_02: 9000, namaqualand_boulder_03: 9000, namaqualand_boulder_04: 9000, namaqualand_boulder_05: 9000,
   namaqualand_cliff_01: 40000, namaqualand_cliff_02: 40000, mountainside: 40000, coastal_cliff_02: 40000, fir_sapling: 8000, pine_sapling_small: 8000, fir_sapling_medium: 10000,
   shrub_03: 0, shrub_02: 8000, fern_02: 0, dandelion_01: 4000, celandine_01: 6000, periwinkle_plant: 6000, grass_medium_01: 6000, grass_medium_02: 6000, moss_01: 6000,
   dry_branches_medium_01: 0, dead_tree_trunk: 12000, tree_stump_01: 10000 }
