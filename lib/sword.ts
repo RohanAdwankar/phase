@@ -85,9 +85,9 @@ export const makeSword = (armor: PBR) => {
 
   // long curved single-edged blade with a gold handle, after the reference: black spine, bright serrated edge, tapering to a swept tip
   const BL = 1.0, BW = 0.05, CURVE = 0.16
-  const steelEdge = new THREE.MeshStandardMaterial({ color: 0xe6e9ee, metalness: 1, roughness: 0.16 })
-  const blackSteel = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: 0.9, roughness: 0.3 })
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 1, roughness: 0.32, normalMap: trimNormal, normalScale: new THREE.Vector2(0.4, 0.4) })
+  const steelEdge = new THREE.MeshStandardMaterial({ color: 0xb4b9c0, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.35 })
+  const blackSteel = new THREE.MeshStandardMaterial({ color: 0x1a1c20, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.35 })
+  const brass = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.85, roughness: 0.5, envMapIntensity: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.4, 0.4) })
   const spine = (t: number) => new V(CURVE * t * t * BL * 0.6, t * BL, 0)
   const half = (t: number) => (t < 0.9 ? BW : BW * Math.max(0.05, 1 - (t - 0.9) / 0.1 * 0.95)) * (1 - 0.18 * t)
   const outline = (lo: number, hi: number) => {

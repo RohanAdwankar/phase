@@ -468,7 +468,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()

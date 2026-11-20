@@ -19,8 +19,8 @@ void main(){
   vec3 col = vec3(texture2D(tDiffuse, uv + ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - ca).b);
   // sun shafts: radial blur of the bright parts of the frame toward the sun
   vec3 rays = vec3(0.0); vec2 d = (uSun - vUv) / 12.0, p = vUv; float w = 1.0;
-  for (int i = 0; i < 12; i++) { p += d; vec3 s = texture2D(tDiffuse, p).rgb; rays += max(s - 1.1, 0.0) * w; w *= 0.88; }
-  col += rays * vec3(1.0, 0.86, 0.62) * 0.11 * uSunVis;
+  for (int i = 0; i < 12; i++) { p += d; vec3 s = texture2D(tDiffuse, p).rgb; rays += max(s - 2.5, 0.0) * w; w *= 0.88; }
+  col += rays * vec3(1.0, 0.86, 0.62) * 0.035 * uSunVis;
   float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(vec3(l), col, 1.1);
   col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.07, 1.02, 0.92), smoothstep(0.0, 1.5, l));
@@ -39,7 +39,7 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
     fragmentShader: frag,
   })
   composer.addPass(new RenderPass(scene, cam))
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.7, 1.0))
+  composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.12, 0.5, 2.2))
   composer.addPass(grade)
   composer.addPass(new OutputPass())
   composer.addPass(new FXAAPass())
