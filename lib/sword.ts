@@ -95,14 +95,14 @@ export const makeSword = (armor: PBR) => {
     for (let k = 0; k <= n; k++) { const t = k / n, p = spine(t), tan = spine(Math.min(1, t + 0.01)).sub(spine(Math.max(0, t - 0.01))).normalize(), nrm = new V(tan.y, -tan.x, 0), w = half(t); top.push(p.clone().addScaledVector(nrm, -w * lo)); bot.push(p.clone().addScaledVector(nrm, w * hi)) }
     sh.moveTo(top[0].x, top[0].y); top.forEach(p => sh.lineTo(p.x, p.y)); for (let k = n; k >= 0; k--) sh.lineTo(bot[k].x, bot[k].y); sh.closePath(); return sh
   }
-  const y0 = top * 0.9 + 0.02
+  const y0 = 0.1
   const blade = new THREE.Mesh(new THREE.ExtrudeGeometry(outline(1, 1), { depth: 0.007, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.003, bevelSegments: 2, curveSegments: 4 }).translate(0, 0, -0.0035), blackSteel); blade.position.y = y0; root.add(blade)
   const edgeGeo = new THREE.ExtrudeGeometry(outline(-0.05, 1), { depth: 0.0078, bevelEnabled: true, bevelThickness: 0.0035, bevelSize: 0.002, bevelSegments: 2, curveSegments: 4 }).translate(0, 0, -0.0039)
   const edge = new THREE.Mesh(edgeGeo, steelEdge); edge.position.y = y0; edge.scale.set(1, 0.985, 1); root.add(edge)
   // serrations along the edge
   for (let k = 0; k < 26; k++) { const t = 0.12 + k * 0.032, p = spine(t), tan = spine(t + 0.01).sub(spine(t - 0.01)).normalize(); const m = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.016, 0.0095), blackSteel); m.position.set(p.x + tan.y * half(t) * 0.55, y0 + p.y, 0); m.rotation.z = Math.atan2(tan.x, tan.y) - 0.7; root.add(m) }
   // long gold handle with cut-outs, a heavy guard and a hooked pommel
-  add(rbox(0.034, 0.34, 0.046, 0.012), brass, new V(0.0, -0.1, 0))
+  add(rbox(0.034, 0.34, 0.046, 0.012), brass, new V(0.0, -0.1 + 0.0, 0))
   for (const y of [-0.02, -0.1, -0.18]) add(rbox(0.036, 0.04, 0.02, 0.006), blackSteel, new V(0.0, y, 0.0))
   for (const y of [-0.04, -0.14, -0.22]) add(new THREE.TorusGeometry(0.026, 0.004, 6, 20), steelEdge, new V(0, y, 0), align(new V(0, 1, 0), new V(0, 0, 1)))
   add(rbox(0.07, 0.05, 0.06, 0.014), brass, new V(0.006, y0 - 0.02, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.12)))

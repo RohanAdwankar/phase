@@ -74,7 +74,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, swingSide: 1, swingA: 0.3, swingHit: false, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -160,19 +160,39 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     fx.casing(pistol.eject.clone().add(pistol.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
     st.kick = 1; st.flash = 0.05; pistol.flash.material.rotation = Math.random() * 6
   }
-  // sword: a swing lasts 0.42 s and cuts at its midpoint, hitting every walker of this dimension inside the arc in front of you
-  const SWING = 0.6
+  // sword: tap to chop (upright blade, strike down, 0.45 s). Hold to charge and release to surge forward in a 360 cut; longer holds surge farther and faster.
+  const SWING = 0.45, MAXCHARGE = 1.0
+  const cutAt = (e: Enemy, dmg: number, shove: number) => {
+    const dx = e.pos.x - st.pos.x, dz = e.pos.z - st.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz)), c = new V(e.pos.x, e.pos.y + 1.7, e.pos.z)
+    e.hp -= dmg; e.hitT = 0.2; e.pos.x += dx / dist * shove; e.pos.z += dz / dist * shove
+    fx.spark(c, 30, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(c, 1, DUST, 0.6)
+    if (e.hp <= 0) killWalker(e)
+  }
   const swingCut = () => {
     const p = st.pos, fwd = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); let any = false
     for (const c of nearChunks(1)) for (const e of [...c.enemies]) {
       if (e.dim !== nd()) continue
       const dx = e.pos.x - p.x, dz = e.pos.z - p.z, dist = Math.hypot(dx, dz)
       if (dist > 6.5 || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
-      any = true; e.hp -= 8; e.hitT = 0.2; e.pos.x += dx / dist * 1.2; e.pos.z += dz / dist * 1.2
-      fx.spark(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 28, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 1, DUST, 0.6)
-      if (e.hp <= 0) killWalker(e)
+      any = true; cutAt(e, 8, 1.2)
     }
     if (any) { st.hit = 0.15; st.kick = 1.4 }
+  }
+  // the 360 cut: every walker of this dimension within reach of the player at any moment of the surge is cut once
+  const surgeCut = () => {
+    let any = false
+    for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
+      if (e.dim !== nd() || st.surgeHit.has(e)) continue
+      if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 6.2) continue
+      st.surgeHit.add(e); any = true; cutAt(e, 14, 2.5)
+    }
+    if (any) { st.hit = 0.2; st.kick = 2 }
+  }
+  const startSurge = (charge: number) => {
+    const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), dist = 5 + 16 * charge, dur = 0.26 + 0.2 * charge
+    st.surge = 1; st.surgeLen = dur; st.surgeSpd = dist / dur; st.surgeHit.clear()
+    st.sdir.copy(f); st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
+    fx.spark(new V(st.pos.x, st.pos.y + 0.3, st.pos.z), 40, f.clone().negate(), DUST); fx.smoke(new V(st.pos.x, st.pos.y + 0.2, st.pos.z), 5, DUST, 1.2)
   }
   const killWalker = (e: Enemy) => {
     const c = e.pos.clone().setY(e.pos.y + 1.6)
@@ -288,6 +308,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     } else v.y -= G * DT * (glide ? 0.08 : 1)
     st.wallCD -= DT
 
+    if (st.surge > 0) { v.x = st.sdir.x * st.surgeSpd; v.z = st.sdir.z * st.surgeSpd }
     const h = st.slide ? 1 : 1.8
     const nx = move("x", h, bx), nz = move("z", h, bx), ny = move("y", h, bx)
     st.ground = ny > 0
@@ -297,11 +318,19 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
     st.fireT -= DT
     if (weapon === "sword") {
-      if (st.swing > 0) {
+      if (st.surge > 0) {
+        st.surge -= DT / st.surgeLen; st.spin = 1 - Math.max(0, st.surge); surgeCut()
+        if (st.surge <= 0) { st.surge = 0; st.fireT = 0.25; st.vel.x = st.sdir.x * 8; st.vel.z = st.sdir.z * 8 }
+      } else if (st.swing > 0) {
         const before = st.swing; st.swing -= DT / SWING
-        if (!st.swingHit && before > 0.55 && st.swing <= 0.55) { st.swingHit = true; swingCut() }
-        if (st.swing <= 0) { st.swing = 0; st.fireT = 0.06 }
-      } else if (st.fire && st.fireT <= 0) { st.swing = 1; st.swingSide = st.swingA >= 0 ? 1 : -1; st.swingHit = false; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 6; st.vel.z += f.z * 6 }
+        if (before > 0.55 && st.swing <= 0.55) swingCut()
+        if (st.swing <= 0) { st.swing = 0; st.fireT = 0.04 }
+      } else if (st.fire && st.fireT <= 0) st.charge = Math.min(MAXCHARGE, st.charge + DT)
+      else if (st.charge > 0) {
+        if (st.charge < 0.22) { st.swing = 1; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
+        else startSurge(st.charge / MAXCHARGE)
+        st.charge = 0
+      }
     }
     else if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
     else if (st.fire && st.fireT <= 0) st.draw = Math.min(1, st.draw + DT / 0.55)
@@ -323,23 +352,26 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
     if (!dbg.freezeVm) cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
     if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
-    cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
+    cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 18 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
       const sway = st.lookX * 0.4, lift = st.lookY * 0.4, bobY = Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0)
       if (weapon === "sword") {
-        // wind up on the near side, slash across the whole screen to the far side, then recover; the next swing starts from where this one ended
-        const t = 1 - st.swing, S = st.swingSide, sm = (u: number) => u * u * (3 - 2 * u), eo = (u: number) => 1 - (1 - u) * (1 - u)
-        let a: number, lift: number
-        if (st.swing <= 0) { st.swingA += (0.3 - st.swingA) * Math.min(1, dt * 1.6); a = st.swingA; lift = 0 }
-        else if (t < 0.24) { const u = eo(t / 0.24); a = S * (0.35 + 0.75 * u); lift = u }
-        else if (t < 0.7) { const u = sm((t - 0.24) / 0.46); a = S * (1.1 - 2.35 * u); lift = 1 - u * 1.3 }
-        else { const u = eo((t - 0.7) / 0.3); a = -S * (1.25 - 0.85 * u); lift = -0.3 * (1 - u) }
-        if (st.swing > 0) st.swingA = a
-        // the blade points forward and up; yawing the pivot about the body sweeps its tip across the whole view
-        swordPivot.position.set(0, -0.42, 0.1)
-        swordPivot.rotation.set(st.lookY * 0.8, -a * 0.95 - st.lookX * 0.8, 0, "YXZ")
-        sword.root.position.set(0.05 + sway, 0.02 + bobY, -0.45)
-        sword.root.rotation.set(-1.05 + lift * 0.5, 0, a * 0.5 + (st.slide ? -0.12 : 0), "YXZ")
+        // upright guard; a chop raises the blade back over the shoulder then brings it down in front; a charge pulls it back and shakes
+        const t = 1 - st.swing, sm = (u: number) => u * u * (3 - 2 * u), eo = (u: number) => 1 - (1 - u) * (1 - u), cp = Math.min(1, st.charge / 0.22), cf = Math.max(0, (st.charge - 0.22) / 0.78)
+        let pitch = -0.28, yaw = 0, roll = 0, px = 0, py = 0, pz = 0
+        if (st.surge > 0) {
+          const s = st.spin; pitch = -1.55; yaw = -s * Math.PI * 2; roll = 0.1; px = -0.05; pz = -0.1
+        } else if (st.swing > 0) {
+          if (t < 0.28) { const u = eo(t / 0.28); pitch = -0.28 + 1.05 * u; py = 0.06 * u; pz = 0.1 * u }
+          else if (t < 0.55) { const u = sm((t - 0.28) / 0.27); pitch = 0.77 - 2.5 * u; py = 0.06 - 0.16 * u; pz = 0.1 - 0.25 * u }
+          else { const u = eo((t - 0.55) / 0.45); pitch = -1.73 + 1.45 * u; py = -0.1 * (1 - u); pz = -0.15 * (1 - u) }
+        } else if (st.charge > 0) {
+          pitch = -0.28 + 1.2 * cp + 0.35 * cf; yaw = 0.35 * cp; roll = -0.25 * cp; px = 0.08 * cp; pz = 0.18 * cp + 0.06 * cf
+          px += Math.sin(time * 70) * 0.006 * cf; py += Math.cos(time * 63) * 0.006 * cf
+        }
+        swordPivot.position.set(0.24 + sway + px, -0.34 + bobY + py, -0.5 + pz)
+        swordPivot.rotation.set(pitch + st.lookY * 0.8, yaw - st.lookX * 0.8, roll + (st.slide ? -0.12 : 0), "YXZ")
+        sword.root.position.set(0, 0.1, 0); sword.root.rotation.set(0, 0, 0)
       } else if (weapon === "bow") {
         bow.root.position.set(0.15 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.2 + lift + bobY, -0.7 + st.kick * 0.03 + st.draw * 0.05)
         bow.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
@@ -386,13 +418,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.strokeStyle = st.hit > 0 ? "#fff" : "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#000"; ctx.shadowBlur = 3
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
+    if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
     ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4)
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword swings. 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
