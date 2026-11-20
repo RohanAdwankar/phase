@@ -101,6 +101,6 @@ export const makePistol = (flashMap: THREE.Texture, armor: PBR) => {
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
   flash.scale.setScalar(0.2); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
-  root.scale.setScalar(1.4); root.position.set(0.14, -0.13, -0.32)
+  root.scale.setScalar(0.72); root.position.set(0.14, -0.13, -0.32)
   return { root, muzzle, flash, light, eject: new V(0.03, 0.08, -0.02) }
 }
