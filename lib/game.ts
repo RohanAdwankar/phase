@@ -6,20 +6,15 @@ import { makeFx } from "./fx"
 import { Enemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
 import { N, terrainY } from "./materials"
-import { buildSegment, disposeSegment, loadWorld, Box, Seg, HW, SEG } from "./world"
+import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, Box, Chunk, CH } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
 const DT = 1 / 120, G = 24, SPEED = 10
 const ORANGE = new THREE.Color(0xff9a30), DUST = new THREE.Color(0xe8d9b0)
+const GLOW = [0x33ccff, 0xffcc44, 0x44ffaa, 0xff6644, 0xaa88ff]
 
-const rng = (s: number) => () => {
-  s = (s + 0x6d2b79f5) | 0
-  let t = Math.imul(s ^ (s >>> 15), 1 | s)
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-}
 const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE.Vector3) => {
   let t0 = 0, t1 = Infinity
   for (const a of ["x", "y", "z"] as Axis[]) {
@@ -68,37 +63,48 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
-  const segs = new Map<number, Seg>()
+  const chunks = new Map<string, Chunk>()
   const genMs: number[] = []
-  const gen = (i: number) => { const t = performance.now(); segs.set(i, buildSegment(scene, world, i, rng(i * 7919 + 13))); genMs.push(Math.round(performance.now() - t)) }
-  const st = { pos: new V(0, 0.01, -4), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
+  let budget = 0
+  const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
     wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
   const on = (c: string) => keys.has(c)
   const nd = () => Math.round(d)
-  const segAt = () => Math.max(0, Math.floor(-st.pos.z / SEG))
-  const nearSegs = () => [segAt() - 1, segAt(), segAt() + 1].flatMap(j => segs.get(j) ?? [])
-  const nearBoxes = () => nearSegs().flatMap(s => s.boxes).filter(b => b.dim === nd())
-  const top = (b: Box) => (b.floor ? terrainY(st.pos.x, st.pos.z) : b.max.y)
+  const pc = () => [Math.floor(st.pos.x / CH), Math.floor(st.pos.z / CH)] as const
+  const ring = (c: Chunk) => { const [x, z] = pc(); return Math.max(Math.abs(c.cx - x), Math.abs(c.cz - z)) }
+  const nearChunks = (r: number) => [...chunks.values()].filter(c => ring(c) <= r)
+  const nearBoxes = () => nearChunks(1).flatMap(c => c.boxes).filter(b => b.dim === nd())
+  const groundH = (x: number, z: number) => {
+    const c = chunks.get(chunkKey(Math.floor(x / CH), Math.floor(z / CH)))
+    if (c) for (const q of c.pits) if (q.dim === nd() && x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1) return -Infinity
+    return terrainY(x, z)
+  }
   const over = (b: Box, h: number) => { const p = st.pos
-    return p.x + 0.3 > b.min.x && p.x - 0.3 < b.max.x && p.y + h > b.min.y && p.y < top(b) && p.z + 0.3 > b.min.z && p.z - 0.3 < b.max.z }
+    return p.x + 0.3 > b.min.x && p.x - 0.3 < b.max.x && p.y + h > b.min.y && p.y < b.max.y && p.z + 0.3 > b.min.z && p.z - 0.3 < b.max.z }
   const move = (axis: Axis, h: number, bx: Box[]) => {
     const v = st.vel[axis]; let n = 0
     st.pos[axis] += v * DT
-    for (const b of bx) if (over(b, h) && (axis === "y" || !b.floor)) {
+    for (const b of bx) if (over(b, h)) {
       const e = axis === "y" ? h : 0.3
-      st.pos[axis] = v > 0 ? b.min[axis] - e : (axis === "y" ? top(b) : b.max[axis] + 0.3)
+      st.pos[axis] = v > 0 ? b.min[axis] - e : b.max[axis] + (axis === "y" ? 0 : 0.3)
       n = v > 0 ? -1 : 1
     }
+    if (axis === "y" && v <= 0) { const gh = groundH(st.pos.x, st.pos.z); if (st.pos.y < gh) { st.pos.y = gh; n = 1 } }
     if (n) st.vel[axis] = 0
     return n
   }
+  // when a phase leaves the player inside geometry, shove out through the nearest face
+  const pushOut = (b: Box, h: number) => {
+    const p = st.pos, c = [b.max.x - (p.x - 0.3), p.x + 0.3 - b.min.x, b.max.z - (p.z - 0.3), p.z + 0.3 - b.min.z, b.max.y - p.y, p.y + h - b.min.y], k = c.indexOf(Math.min(...c))
+    if (k === 0) p.x = b.max.x + 0.3; else if (k === 1) p.x = b.min.x - 0.3; else if (k === 2) p.z = b.max.z + 0.3; else if (k === 3) p.z = b.min.z - 0.3; else if (k === 4) p.y = b.max.y; else p.y = b.min.y - h
+  }
+  let checkpoint = { pos: st.pos.clone(), dim: 2 }, cpT = 0
   const respawn = () => {
-    const s = segs.get(segAt())!
-    st.pos.set(0, terrainY(0, s.z0 - 3) + 0.05, s.z0 - 3); st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
-    d = target = s.clear
+    st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
+    d = target = checkpoint.dim
   }
 
   const boom = new THREE.PointLight(0xffa040, 0, 30); scene.add(boom)
@@ -115,9 +121,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
-    for (const b of nearBoxes()) if (!b.floor) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
-    if (dir.y < -1e-3) tMin = Math.min(tMin, (terrainY(o.x + dir.x * 8, o.z + dir.z * 8) - o.y) / dir.y)
-    for (const s of nearSegs()) for (const e of s.enemies) if (e.dim === nd()) {
+    for (const b of nearBoxes()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
+    for (let t = 1; t < tMin; t += 1.5) if (o.y + dir.y * t < terrainY(o.x + dir.x * t, o.z + dir.z * t)) { tMin = t; break }
+    for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd()) {
       const t = rayBox(o, dir, ...hitBox(e))
       if (t < tMin) { tMin = t; hit = e }
     }
@@ -127,13 +133,51 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (--hit.hp <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
         fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; hit.mesh.removeFromParent(); st.kills++
-        for (const s of nearSegs()) s.enemies = s.enemies.filter(e => e !== hit)
+        for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
       }
     } else if (tMin < 150) { fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
     beam(mz, end, 0.012, 0.05)
     const right = new V(1, 0, 0).applyQuaternion(cam.quaternion), up = new V(0, 1, 0).applyQuaternion(cam.quaternion)
     fx.casing(vm.eject.clone().add(vm.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
     st.kick = 1; st.flash = 0.05; vm.flash.material.rotation = Math.random() * 6
+  }
+
+  const enemyTick = (dt: number) => {
+    const p = st.pos
+    for (const c of nearChunks(2)) for (const e of c.enemies) {
+      if (Math.abs(e.dim - d) > 1.1) continue
+      const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
+      e.mesh.rotation.y = Math.atan2(-dx, -dz)
+      const moving = dist < 70 && dist > 9
+      if (moving) {
+        const nx = e.pos.x + dx / dist * 2.5 * dt, nz = e.pos.z + dz / dist * 2.5 * dt
+        if (!c.boxes.some(b => b.dim === e.dim && nx > b.min.x - 1 && nx < b.max.x + 1 && nz > b.min.z - 1 && nz < b.max.z + 1 && b.max.y > e.pos.y + 3)) { e.pos.x = nx; e.pos.z = nz }
+      }
+      e.pos.y = terrainY(e.pos.x, e.pos.z)
+      e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
+      e.update(dt, moving, time * 5)
+      if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
+      if (e.dim === nd() && dist < 45 && (e.fireT -= dt) <= 0) {
+        e.fireT = 0.9 + Math.random() * 0.7
+        const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
+        beam(from, to, 0.03, 0.12)
+        if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+      }
+    }
+  }
+  // stream the endless world in and out around the player, building at most a couple of pieces per frame
+  const stream = () => {
+    const [px, pz] = pc()
+    const want: [number, number][] = []
+    for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) want.push([px + dx, pz + dz])
+    want.sort((a, b) => Math.hypot(a[0] - px, a[1] - pz) - Math.hypot(b[0] - px, b[1] - pz))
+    for (const [cx, cz] of want) if (budget > 0 && !chunks.has(chunkKey(cx, cz))) { budget--; const t = performance.now(); chunks.set(chunkKey(cx, cz), buildChunk(scene, world, cx, cz)); genMs.push(Math.round(performance.now() - t)) }
+    for (const c of chunks.values()) {
+      const r = ring(c)
+      if (r <= 1 && !c.detail && budget > 0) { budget--; buildDetail(world, c) }
+      else if (r > 2 && c.detail) disposeDetail(c)
+      if (r > 4) { disposeChunk(c); chunks.delete(chunkKey(c.cx, c.cz)) }
+    }
   }
 
   const step = () => {
@@ -143,7 +187,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (wish.lengthSq() > 0) wish.normalize()
     const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
-    for (const b of bx) if (over(b, 1.8)) p.y = top(b)
+    for (const b of bx) if (over(b, st.slide ? 1 : 1.8)) pushOut(b, st.slide ? 1 : 1.8)
 
     const speed = Math.hypot(v.x, v.z)
     if (!st.slide && st.ground && crouch && speed > 4) { st.slide = true; v.x *= Math.max(1, SPEED * 1.4 / speed); v.z *= Math.max(1, SPEED * 1.4 / speed) }
@@ -187,28 +231,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
     st.fireT -= DT
     if (st.fire && st.fireT <= 0) { shoot(); st.fireT = 0.09 }
-    for (const s of nearSegs()) for (const e of s.enemies) {
-      const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
-      e.mesh.rotation.y = Math.atan2(-dx, -dz); e.pos.y = terrainY(e.pos.x, e.pos.z)
-      const moving = dist < 70 && dist > 9
-      e.update(DT, moving, time * 5)
-      if (e.hitT > 0) { e.hitT -= DT; e.mesh.position.x = e.pos.x + Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
-      if (moving) {
-        e.pos.x = Math.max(-HW + 2, Math.min(HW - 2, e.pos.x + dx / dist * 2.5 * DT)); e.pos.z += dz / dist * 2.5 * DT; e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
-      }
-      if (e.dim === nd() && dist < 45 && (e.fireT -= DT) <= 0) {
-        e.fireT = 0.9 + Math.random() * 0.7
-        const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
-        beam(from, to, 0.03, 0.12)
-        if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
-      }
-    }
-    best = Math.max(best, Math.floor(-p.z))
-    // safety net so nothing can leave the arena: clamp to the lane and cap height, and respawn once below the chasm floor
-    p.x = Math.max(-HW - 0.2, Math.min(HW + 0.2, p.x)); p.z = Math.min(p.z, 1.4); p.y = Math.min(p.y, 60)
-    if (st.hp <= 0 || p.y < -9.5) respawn()
-    for (let i = segAt() - 2; i < segAt() + 8; i++) if (i >= 0 && !segs.has(i)) gen(i)
-    for (const [i, s] of segs) if (i < segAt() - 2) { disposeSegment(s); segs.delete(i) }
+    best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
+    cpT -= DT
+    if (cpT <= 0 && st.ground && st.hp > 40) { cpT = 2; const q = chunks.get(chunkKey(...pc())); if (q && !q.pits.some(z => z.dim === nd() && Math.abs(p.x - (z.x0 + z.x1) / 2) < 14 && Math.abs(p.z - (z.z0 + z.z1) / 2) < 14)) checkpoint = { pos: p.clone(), dim: nd() } }
+    if (st.hp <= 0 || p.y < terrainY(p.x, p.z) - 8.5 || p.y < -60) respawn()
+    p.y = Math.min(p.y, 80)
   }
 
   const frame = (w: number, h: number, dt: number) => {
@@ -226,13 +253,22 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     vm.flash.material.opacity = st.flash > 0 ? 0.65 : 0; vm.light.intensity = st.flash > 0 ? 1.2 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p)
-    for (const [i, s] of segs) {
-      const d0 = Math.abs(i - segAt())
-      s.detail.visible = d0 <= 1; s.trees.hi.forEach(o => (o.visible = d0 <= 1)); s.trees.lo.forEach(o => (o.visible = d0 > 1))
+    for (const c of chunks.values()) {
+      const r = ring(c)
+      if (c.detail) c.detail.visible = r <= 1
+      c.lods.hi.forEach(o => (o.visible = r <= 1)); c.lods.lo.forEach(o => (o.visible = r > 1))
     }
+    // the dimension you are sliding toward shows as a faint ghost, and its enemies glow through walls so you can scout them
     for (let i = 0; i < N; i++) {
-      const a = Math.max(0, 1 - Math.abs(d - i) * 1.1), solid = i === nd()
-      for (const m of registry[i]) { m.visible = a > 0; m.opacity = solid ? 1 : a * 0.25; m.transparent = !solid; m.depthWrite = solid }
+      const a = Math.max(0, 1 - Math.abs(d - i) * 1.15), solid = i === nd()
+      for (const m of registry[i]) {
+        m.visible = a > 0; m.transparent = !solid; m.depthWrite = solid
+        const xray = !solid && m.userData.xray
+        m.opacity = solid ? 1 : xray ? Math.min(1, a * 1.4) * 0.9 : a * 0.3
+        m.depthTest = !xray
+        const sm = m as THREE.MeshStandardMaterial
+        if (sm.emissive) { if (xray) sm.emissive.set(GLOW[i]); else sm.emissive.set(0); sm.emissiveIntensity = xray ? 1.4 : 0 }
+      }
     }
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
     boom.intensity = Math.max(0, boom.intensity - dt * 300)
@@ -245,7 +281,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
-    ctx.fillText(`${Math.floor(-p.z)} m   ${st.kills} kills   best ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
+    ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4)
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
@@ -254,7 +290,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
 
   let raf = 0, last = performance.now(), acc = 0
-  let manual = false, scale = 1, ema = 1 / 60, frames = 0
+  let manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
   const tick = (dt: number) => {
     acc += dt
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight, rp = dpr * scale
@@ -263,7 +299,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       cam.aspect = w / h; cam.updateProjectionMatrix(); post.resize(w, h, rp)
     }
     renderer.shadowMap.needsUpdate = frames++ % 3 === 0
+    budget = 2
+    // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
+    if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
     while (acc > DT) { acc -= DT; step() }
+    enemyTick(Math.min(dt, 0.05)); stream()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {
@@ -276,9 +316,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       tick(dt)
     }
   }
-  gen(0); gen(1); gen(2)
+  for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, vm, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()
@@ -295,7 +335,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const md = (e: MouseEvent) => { if (e.button === 0) st.fire = true; if (e.button === 2) st.glide = true }
   const mu = (e: MouseEvent) => { if (e.button === 0) st.fire = false; if (e.button === 2) st.glide = false }
-  const wh = (e: WheelEvent) => { e.preventDefault(); target = Math.min(N - 1, Math.max(0, target + e.deltaY * 0.004)) }
+  const wh = (e: WheelEvent) => { e.preventDefault(); lastWheel = performance.now(); target = Math.min(N - 1, Math.max(0, target + e.deltaY * 0.004)) }
   const click = () => { if (!document.pointerLockElement) canvas.requestPointerLock() }
   const noMenu = (e: Event) => e.preventDefault()
   addEventListener("keydown", kd); addEventListener("keyup", ku); addEventListener("mousemove", mm)

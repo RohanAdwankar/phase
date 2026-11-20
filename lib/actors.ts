@@ -18,12 +18,14 @@ const tiled = (p: PBR, r: number): PBR => {
 
 export const makeFoeMats = (olivePBR: PBR, metalPBR: PBR): FoeMats => {
   const olive = tiled(olivePBR, 2), metal = tiled(metalPBR, 2)
-  return {
+  const mats = {
     olive: per(() => pbrMaterial(olive, { metalness: 0.55, tint: 0xffffff })),
     yellow: per(() => new THREE.MeshStandardMaterial({ color: 0xf0c418, metalness: 0.4, roughness: 0.5, roughnessMap: olive.arm, normalMap: olive.normalMap, transparent: true })),
     metal: per(() => pbrMaterial(metal, { metalness: 0.75, tint: 0xd8dade })),
     lamp: per(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a1a).multiplyScalar(4), toneMapped: false, transparent: true })),
   }
+  Object.values(mats).forEach(l => (l as THREE.Material[]).forEach(m => (m.userData.xray = true)))
+  return mats
 }
 
 type Leg = { hip: THREE.Group; upper: THREE.Group; lower: THREE.Group; home: THREE.Vector3; foot: THREE.Vector3; from: THREE.Vector3; to: THREE.Vector3; t: number; side: number }

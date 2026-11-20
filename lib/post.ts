@@ -9,13 +9,14 @@ import { FXAAPass } from "three/examples/jsm/postprocessing/FXAAPass.js"
 // linear multipliers that give each dimension its own colour grade
 export const GRADE = [[1, 1, 1], [1.12, 1.02, 0.8], [0.84, 1.06, 1.08], [1.14, 0.9, 0.78], [0.96, 0.9, 1.16]]
 
-const frag = `uniform sampler2D tDiffuse; uniform vec2 uSun; uniform float uSunVis, uTime, uAspect; uniform vec3 uTint;
+const frag = `uniform sampler2D tDiffuse; uniform vec2 uSun; uniform float uSunVis, uTime, uAspect, uPeek; uniform vec3 uTint;
 varying vec2 vUv;
 float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
 void main(){
   vec2 c = vUv - 0.5; float edge = dot(c, c);
-  vec2 ca = c * edge * 0.004;
-  vec3 col = vec3(texture2D(tDiffuse, vUv + ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - ca).b);
+  vec2 uv = vUv + c * sin(uTime * 5.0 + edge * 40.0) * uPeek * 0.03;
+  vec2 ca = c * (edge * 0.004 + uPeek * 0.012);
+  vec3 col = vec3(texture2D(tDiffuse, uv + ca).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - ca).b);
   // sun shafts: radial blur of the bright parts of the frame toward the sun
   vec3 rays = vec3(0.0); vec2 d = (uSun - vUv) / 12.0, p = vUv; float w = 1.0;
   for (int i = 0; i < 12; i++) { p += d; vec3 s = texture2D(tDiffuse, p).rgb; rays += max(s - 1.1, 0.0) * w; w *= 0.88; }
@@ -25,6 +26,7 @@ void main(){
   col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.07, 1.02, 0.92), smoothstep(0.0, 1.5, l));
   col *= uTint;
   col *= 1.0 - edge * 1.1;
+  col += uTint * uPeek * edge * 1.6;
   col += (rnd(vUv * 1000.0) - 0.5) * 0.012;
   gl_FragColor = vec4(col, 1.0);
 }`
@@ -32,7 +34,7 @@ void main(){
 export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.PerspectiveCamera) => {
   const composer = new EffectComposer(renderer)
   const grade = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2() }, uSunVis: { value: 0 }, uTime: { value: 0 }, uAspect: { value: 1 }, uTint: { value: new THREE.Vector3(1, 1, 1) } },
+    uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2() }, uSunVis: { value: 0 }, uTime: { value: 0 }, uAspect: { value: 1 }, uPeek: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) } },
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader: frag,
   })
@@ -50,6 +52,7 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
       grade.uniforms.uSun.value.set(tmp.x * 0.5 + 0.5, tmp.y * 0.5 + 0.5)
       grade.uniforms.uSunVis.value = behind ? 0 : Math.max(0, 1 - Math.hypot(tmp.x, tmp.y) * 0.35)
       grade.uniforms.uTime.value = time % 10
+      grade.uniforms.uPeek.value = Math.min(1, Math.abs(d - Math.round(d)) * 2)
       const i = Math.min(GRADE.length - 2, Math.floor(d)), t = d - i
       grade.uniforms.uTint.value.set(...(GRADE[i].map((v, k) => v + (GRADE[i + 1][k] - v) * t) as [number, number, number]))
     },

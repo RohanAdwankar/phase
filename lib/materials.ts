@@ -22,7 +22,7 @@ export const splatMaterial = (a: PBR, b: PBR, o: { scaleB: number; attr?: boolea
       `#include <begin_vertex>\n vW = ${o.attr ? "aRock" : "0.0"}; vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
     const mixN = (s: string, tex: string, uv: string, extra = "") => s.replace(`texture2D( ${tex}, ${uv} )`, `mix(texture2D( ${tex}, ${uv} ), texture2D( ${tex}B, ${uv} * scaleB )${extra}, w)`)
     sh.fragmentShader = `uniform sampler2D mapB, normalMapB, armB, mapC; uniform float scaleB; varying float vW; varying vec3 vWP;\n${NOISE}\n` + sh.fragmentShader
-      .replace("#include <map_fragment>", `float w = clamp(vW${o.attr ? "" : " + smoothstep(0.52, 0.68, f2(vWP.xz * 0.045))"}, 0.0, 1.0);
+      .replace("#include <map_fragment>", `float w = clamp(vW${o.attr ? "" : " + smoothstep(0.62, 0.78, f2(vWP.xz * 0.045))"}, 0.0, 1.0);
         vec4 base4 = mix(texture2D(map, vMapUv), texture2D(mapB, vMapUv * scaleB), w);
         ${o.c ? "base4 = mix(base4, texture2D(mapC, vMapUv * 0.9), smoothstep(0.5, 0.66, f2(vWP.xz * 0.07 + 31.0)) * 0.9);" : ""}
         float fine = dot(texture2D(map, vMapUv * 8.7).rgb, vec3(0.33));
@@ -41,8 +41,8 @@ export const pbrMaterial = (p: PBR, o: { tint?: number; metalness?: number; norm
 })
 
 // gentle rolling relief shared by the ground mesh and the grass shader so blades sit on the surface
-export const terrainY = (x: number, z: number) => 0.7 * (Math.sin(x * 0.09 + Math.sin(z * 0.05) * 2) * 0.5 + Math.sin(z * 0.07 + x * 0.03) * 0.5) + 0.25 * Math.sin(x * 0.31 + z * 0.17) * Math.sin(z * 0.23) + 0.06 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
-const TERRAIN_GLSL = `float terrainY(vec2 p){ return 0.7 * (sin(p.x * 0.09 + sin(p.y * 0.05) * 2.0) * 0.5 + sin(p.y * 0.07 + p.x * 0.03) * 0.5) + 0.25 * sin(p.x * 0.31 + p.y * 0.17) * sin(p.y * 0.23) + 0.06 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
+export const terrainY = (x: number, z: number) => 3.2 * Math.sin(x * 0.034 + 0.7) * Math.sin(z * 0.029 + 2.1) + 1.4 * Math.sin(x * 0.061 - z * 0.047) + 4.5 * Math.sin(x * 0.011 + 1.3) * Math.sin(z * 0.009) + 2.2 * Math.sin(x * 0.023 - z * 0.017) + 0.7 * (Math.sin(x * 0.09 + Math.sin(z * 0.05) * 2) * 0.5 + Math.sin(z * 0.07 + x * 0.03) * 0.5) + 0.25 * Math.sin(x * 0.31 + z * 0.17) * Math.sin(z * 0.23) + 0.06 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
+const TERRAIN_GLSL = `float terrainY(vec2 p){ return 3.2 * sin(p.x * 0.034 + 0.7) * sin(p.y * 0.029 + 2.1) + 1.4 * sin(p.x * 0.061 - p.y * 0.047) + 4.5 * sin(p.x * 0.011 + 1.3) * sin(p.y * 0.009) + 2.2 * sin(p.x * 0.023 - p.y * 0.017) + 0.7 * (sin(p.x * 0.09 + sin(p.y * 0.05) * 2.0) * 0.5 + sin(p.y * 0.07 + p.x * 0.03) * 0.5) + 0.25 * sin(p.x * 0.31 + p.y * 0.17) * sin(p.y * 0.23) + 0.06 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
 export const uTime = { value: 0 }
 export const uPlayer = { value: new THREE.Vector3() }
 const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
@@ -60,9 +60,9 @@ export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = 
       vec3 base = vec3(centre + off, 0.0); base = vec3(base.x, terrainY(base.xy), base.y);
       float dist = distance(base.xz, uPlayer.xz), rk = hh(cid * 7.1 + 2.0), rh = hh(id * 5.3 + 9.0), tuft = hh(cid * 5.3 + 4.0);
       float ang = atan(-off.x, off.y) + (hh(id * 3.7 + 1.0) - 0.5) * 1.0;
-      float keep = step(rk, clamp(1.0 - (dist - 4.0) / ${undergrowth ? "12.0" : "30.0"}, 0.0, 1.0));
+      float keep = step(rk, clamp(1.0 - (dist - 6.0) / ${undergrowth ? "18.0" : "46.0"}, 0.0, 1.0));
       float clump = 0.5 + 0.5 * sin(base.x * 0.9 + sin(base.z * 1.3) * 2.0) * sin(base.z * 0.8 + base.x * 0.4);
-      float sc = (${undergrowth ? "0.18 + tuft * 0.2" : "0.32 + tuft * 0.5"}) * (0.75 + 0.5 * rh) * (0.7 + 0.8 * clump) * keep;
+      float sc = (${undergrowth ? "0.2 + tuft * 0.22" : "0.38 + tuft * 0.55"}) * (0.75 + 0.5 * rh) * (0.7 + 0.8 * clump) * keep;
       float k = pow(position.y * 1.6, 2.0);
       vec3 p = position * sc;
       p.x += (sin(uTime * 1.7 + base.x * 0.35 + base.z * 0.27) * 0.16 + sin(uTime * 3.1 + base.x * 1.3) * 0.03) * k * sc;
