@@ -12,6 +12,30 @@ export const CH = 40, CELL = 20
 // ell marks a boulder: a solid ellipsoid (centre, horizontal radii, centre height, half height) instead of a plain axis-aligned box
 export type Ell = { cx: number; cz: number; rx: number; rz: number; cy: number; hh: number; bot: number }
 export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number; ell?: Ell }
+// Push a ground unit (a circle of radius R standing at pos) out of every rock of its dimension: boulders radially, boxes through the nearest face. Returns true if it moved.
+export const clearRock = (boxes: Box[], dim: number, pos: THREE.Vector3, R: number) => {
+  let moved = false
+  for (let it = 0; it < 3; it++) {
+    let hit = false
+    for (const b of boxes) {
+      if (b.dim !== dim) continue
+      if (b.ell) {
+        const e = b.ell, a = (pos.x - e.cx) / (e.rx + R), c = (pos.z - e.cz) / (e.rz + R), q = a * a + c * c
+        if (q >= 1 || pos.y + 0.5 > e.cy + e.hh * Math.sqrt(1 - q)) continue
+        const l = Math.sqrt(q)
+        if (l < 1e-4) pos.x = e.cx + e.rx + R + 0.05
+        else { pos.x = e.cx + (pos.x - e.cx) / l * 1.01; pos.z = e.cz + (pos.z - e.cz) / l * 1.01 }
+        hit = moved = true
+      } else if (pos.x > b.min.x - R && pos.x < b.max.x + R && pos.z > b.min.z - R && pos.z < b.max.z + R && pos.y + 3 > b.min.y && pos.y < b.max.y) {
+        const d = [pos.x - (b.min.x - R), b.max.x + R - pos.x, pos.z - (b.min.z - R), b.max.z + R - pos.z], k = d.indexOf(Math.min(...d))
+        if (k === 0) pos.x = b.min.x - R - 0.01; else if (k === 1) pos.x = b.max.x + R + 0.01; else if (k === 2) pos.z = b.min.z - R - 0.01; else pos.z = b.max.z + R + 0.01
+        hit = moved = true
+      }
+    }
+    if (!hit) break
+  }
+  return moved
+}
 export const ellBox = (cx: number, cy: number, cz: number, rx: number, hh: number, rz: number, dim: number): Box =>
   ({ min: new THREE.Vector3(cx - rx, cy - hh, cz - rz), max: new THREE.Vector3(cx + rx, cy + hh, cz + rz), dim, ell: { cx, cz, rx, rz, cy, hh, bot: cy - hh * 0.62 } })
 export type Pit = { x0: number; x1: number; z0: number; z1: number; dim: number }
@@ -201,6 +225,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
   }
 
   flushBoulders()
+  for (const e of c.enemies) { clearRock(c.boxes, e.dim, e.pos, 1.7); e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z); e.pos.y = terrainY(e.pos.x, e.pos.z); e.mesh.position.y = e.pos.y }
 
   // trees are shared by every dimension; the full-detail copy shows near the player and a cheap copy further out
   const tr = rngFrom(cx, cz, 77)

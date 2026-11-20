@@ -11,7 +11,7 @@ import { makeSword } from "./sword"
 import { N, terrainY } from "./materials"
 import { gradient } from "./toon"
 import { createSfx, makeSfx } from "./audio"
-import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, Box, Chunk, CH } from "./world"
+import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, clearRock, Box, Chunk, CH } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
 const V = THREE.Vector3
@@ -361,6 +361,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayCollider(from, dir, b) < len) return false
     return true
   }
+  // walkers are solid against every boulder and wall of their own dimension, however they got moved
+  const rocksNear = (e: Enemy) => { const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, e.dim, e.pos, 1.7) }
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of c.enemies) {
@@ -369,12 +371,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       const moving = dist < 70 && dist > 9
       if (moving) {
-        // walkers are blocked by every wall and stone of their own dimension, sliding along it when they hit
-        const R = 1.7, blocked = (x: number, z: number) => { for (const ch of nearChunks(3)) for (const b of ch.boxes) if (b.dim === e.dim && b.max.y > e.pos.y + 1.5 && b.min.y < e.pos.y + 2 && x > b.min.x - R && x < b.max.x + R && z > b.min.z - R && z < b.max.z + R) return true; return false }
-        const nx = e.pos.x + dx / dist * 2.5 * dt, nz = e.pos.z + dz / dist * 2.5 * dt
-        if (!blocked(nx, e.pos.z)) e.pos.x = nx
-        if (!blocked(e.pos.x, nz)) e.pos.z = nz
+        e.pos.x += dx / dist * 2.5 * dt; e.pos.z += dz / dist * 2.5 * dt
       }
+      rocksNear(e)
       e.pos.y = terrainY(e.pos.x, e.pos.z)
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
       e.update(dt, moving, time * 5)
@@ -398,7 +397,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const nx = dist > 0.001 ? dx / dist : 1, nz = dist > 0.001 ? dz / dist : 0, push = (min - dist) * 0.5
       a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push
     }
-    for (const e of live) { e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
+    for (const e of live) { rocksNear(e); e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
     for (const e of live) if (e.dim === nd()) {
       const dx = st.pos.x - e.pos.x, dz = st.pos.z - e.pos.z, dist = Math.hypot(dx, dz), min = 2.1
       if (dist < min && st.pos.y < e.pos.y + 2.8 && st.pos.y + 1.8 > e.pos.y) { const k = dist > 0.001 ? 1 / dist : 0; st.pos.x = e.pos.x + (dist > 0.001 ? dx * k : 1) * min; st.pos.z = e.pos.z + (dist > 0.001 ? dz * k : 0) * min }
