@@ -243,13 +243,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement) ctx.fillText("click to play. wasd move, mouse aim, click shoot, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual) ctx.fillText("click to play. wasd move, mouse aim, click shoot, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
-  const loop = (now: number) => {
-    raf = requestAnimationFrame(loop)
-    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now; acc += dt
+  let manual = false
+  const tick = (dt: number) => {
+    acc += dt
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); hud.width = w * dpr; hud.height = h * dpr
@@ -258,9 +258,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     while (acc > DT) { acc -= DT; step() }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
+  const loop = (now: number) => {
+    raf = requestAnimationFrame(loop)
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now
+    if (!manual) tick(dt)
+  }
   gen(0); gen(1); gen(2)
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs }
+  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()
