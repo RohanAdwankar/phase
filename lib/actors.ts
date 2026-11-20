@@ -7,7 +7,7 @@ const V = THREE.Vector3
 const N = 5
 export type Mat = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial
 export type FoeMats = { olive: Mat[]; yellow: Mat[]; metal: Mat[]; lamp: Mat[] }
-export type Enemy = { mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number }
+export type Enemy = { mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number; hitT: number }
 
 const rbox = (w: number, h: number, d: number, r = 0.02) => new RoundedBoxGeometry(w, h, d, 3, r)
 const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
@@ -118,13 +118,13 @@ export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.Buff
     const hand = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.065, 0.1, 3, 0.025), gold); hand.position.copy(wrist).addScaledVector(dir, 0.02); hand.quaternion.copy(q); root.add(hand)
   }
   const grip = new V(0.0, -size.y * 0.25, 0.0)
-  arm(new V(0.22, -0.34, 0.5), grip.clone().add(new V(0.02, 0.0, 0.0)))
-  arm(new V(-0.26, -0.32, 0.3), new V(-0.02, -size.y * 0.45, -0.03))
+  arm(new V(0.17, -0.25, 0.3), grip.clone().add(new V(0.02, 0.0, 0.0)))
+  arm(new V(-0.19, -0.24, 0.2), new V(-0.02, -size.y * 0.45, -0.03))
 
   const muzzle = new THREE.Object3D(); muzzle.position.set(0, size.y * 0.25, -len * 0.75); root.add(muzzle)
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
   flash.scale.setScalar(0.4); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 8); muzzle.add(light)
-  root.position.set(0.14, -0.13, -0.32)
+  root.scale.setScalar(1.35); root.position.set(0.14, -0.13, -0.32)
   return { root, muzzle, flash, light, eject: new V(0.03, size.y * 0.3, -len * 0.1) }
 }

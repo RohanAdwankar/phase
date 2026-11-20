@@ -59,7 +59,8 @@ export const grassMaterial = (patch: THREE.Vector4, tint: number) => {
       float ca = cos(ang), sa = sin(ang); p.xz = vec2(ca * p.x - sa * p.z, sa * p.x + ca * p.z);
       transformed = p + base;
       vColor.rgb *= 0.6 + 0.55 * hh(id * 11.7);
-      vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), hh(id * 13.1) * 0.5);`)
+      float pt = 0.5 + 0.5 * sin(base.x * 0.17 + sin(base.z * 0.11) * 2.0) * sin(base.z * 0.13);
+      vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), clamp(hh(id * 13.1) * 0.35 + pt * 0.45, 0.0, 0.85));`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = vec3(0.0, 1.0, 0.0);")
   }
   return m

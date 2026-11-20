@@ -1,7 +1,7 @@
 import * as THREE from "three"
 
 const V = THREE.Vector3
-const MAX = 400, CASE = 20
+const MAX = 400, CASE = 20, PUFF = 40
 const dot = (() => {
   const c = document.createElement("canvas"); c.width = c.height = 32
   const g = c.getContext("2d")!, r = g.createRadialGradient(16, 16, 0, 16, 16, 16)
@@ -22,7 +22,10 @@ export const makeFx = (scene: THREE.Scene) => {
   const moteGeo = new THREE.BufferGeometry(); moteGeo.setAttribute("position", new THREE.BufferAttribute(motes, 3))
   const dust = new THREE.Points(moteGeo, new THREE.PointsMaterial({ size: 0.06, map: dot, color: 0xfff2d0, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }))
   dust.frustumCulled = false
-  scene.add(sparks, dust, ...casings)
+  const puffs = [...Array(PUFF)].map(() => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, transparent: true, depthWrite: false, opacity: 0 })); s.visible = false; return s })
+  const pv = puffs.map(() => new V()), pl = puffs.map(() => 0), ps = puffs.map(() => 1)
+  scene.add(sparks, dust, ...casings, ...puffs)
+  let pi = 0
   let head = 0, ci = 0, t = 0
   const prev = new V()
 
@@ -39,8 +42,21 @@ export const makeFx = (scene: THREE.Scene) => {
       const i = ci++ % CASE; casings[i].position.copy(p); cv[i].copy(v); cl[i] = 1.2; casings[i].visible = true
       casings[i].rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6)
     },
+    smoke(p: THREE.Vector3, n: number, color: THREE.Color, size: number) {
+      for (let k = 0; k < n; k++) {
+        const i = pi++ % PUFF, s = puffs[i]
+        s.position.copy(p).add(new V((Math.random() - 0.5) * size, Math.random() * size * 0.5, (Math.random() - 0.5) * size)); s.visible = true
+        ;(s.material as THREE.SpriteMaterial).color.copy(color); pv[i].set((Math.random() - 0.5) * 0.8, 0.6 + Math.random() * 0.8, (Math.random() - 0.5) * 0.8)
+        pl[i] = 1; ps[i] = size * (0.8 + Math.random() * 0.6)
+      }
+    },
     update(dt: number, cam: THREE.Vector3) {
       t += dt
+      puffs.forEach((s, i) => {
+        if (pl[i] <= 0) return
+        pl[i] -= dt * 0.9; s.position.addScaledVector(pv[i], dt); s.scale.setScalar(ps[i] * (1.6 - pl[i]))
+        ;(s.material as THREE.SpriteMaterial).opacity = Math.max(0, pl[i]) * 0.55; if (pl[i] <= 0) s.visible = false
+      })
       for (let i = 0; i < MAX; i++) {
         if (life[i] <= 0) continue
         life[i] -= dt; vel[i * 3 + 1] -= 9 * dt

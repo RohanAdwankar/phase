@@ -9,16 +9,17 @@ export const SEG = 40, HW = 16
 export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
 export type Seg = { group: THREE.Group; detail: THREE.Group; trees: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }; boxes: Box[]; enemies: Enemy[]; clear: number; z0: number; grass: THREE.Material[]; geos: THREE.BufferGeometry[] }
 
-const TINT = [0xffffff, 0xfff0b0, 0xc8fff0, 0xffd0a8, 0xe8d8ff]
+const TINT = [0xffffff, 0xf2e2a0, 0xc4e4b4, 0xeccaa0, 0xdce2ff]
 const MODELS = ["namaqualand_boulder_02", "namaqualand_boulder_03", "namaqualand_boulder_04", "namaqualand_boulder_05", "boulder_01", "namaqualand_cliff_01", "namaqualand_cliff_02", "mountainside", "coastal_cliff_02",
   "fir_sapling", "fir_sapling_lo", "pine_sapling_small", "pine_sapling_lo", "fir_sapling_medium", "fir_sapling_medium_lo", "shrub_02", "shrub_03", "fern_02", "grass_medium_01", "grass_medium_02", "dandelion_01", "celandine_01", "periwinkle_plant", "moss_01", "dry_branches_medium_01", "tree_stump_01"]
 
 export const loadWorld = async () => {
-  const [grass, dry, rock, cliff, olive, metal] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "cliff_side", "green_metal_rust", "metal_plate"].map(loadPBR))
+  const [grass, dry, rock, cliff, olive, metal, forest, scree] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "cliff_side", "green_metal_rust", "metal_plate", "forrest_ground_01", "dry_ground_rocks"].map(loadPBR))
+  const biome: [PBR, PBR][] = [[grass, dry], [dry, scree], [forest, rock], [scree, dry], [grass, forest]]
   const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await loadModel(id)] as const))
   const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await loadModel("pine_sapling_small_lo")
   const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
-  const lane = per(i => splatMaterial(grass, dry, { scaleB: 0.8, tint: TINT[i] }))
+  const lane = per(i => splatMaterial(biome[i][0], biome[i][1], { scaleB: 0.8, tint: TINT[i] }))
   const body = per(i => pbrMaterial(cliff, { tint: TINT[i] }))
   const rockMat = per(i => pbrMaterial(rock, { tint: TINT[i] }))
   const cache = new Map<string, THREE.Material>()
@@ -27,8 +28,10 @@ export const loadWorld = async () => {
     if (!cache.has(key)) cache.set(key, track(dim, src.clone()))
     return cache.get(key)!
   }
-  const hill = splatMaterial(grass, rock, { scaleB: 0.5, attr: true, tint: 0xd8d8d0 }); hill.transparent = false
-  return { grass, dry, rock, cliff, olive, metal, lane, body, rockMat, models, matFor, hill, foe: makeFoeMats(olive, metal) }
+  const aoTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(0,0,0,0.6)"); r.addColorStop(0.6, "rgba(0,0,0,0.25)"); r.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c) })()
+  const ao = per(() => new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))
+  const hill = splatMaterial(grass, forest, { scaleB: 0.7, attr: true, tint: 0xc4cfb4 }); hill.transparent = false
+  return { grass, dry, rock, cliff, olive, metal, lane, body, rockMat, models, matFor, hill, ao, foe: makeFoeMats(olive, metal) }
 }
 export type World = Awaited<ReturnType<typeof loadWorld>>
 
@@ -55,8 +58,8 @@ const blade = (() => {
 })()
 
 export const hillY = (x: number, z: number) => {
-  const d = Math.max(0, Math.abs(x) - HW - 12)
-  return 4 + fbm(x * 0.03, z * 0.03, 2) * 22 + d * 0.5 + fbm(x * 0.12, z * 0.12, 5) * 3
+  const a = Math.abs(x) - HW, ramp = Math.min(1, Math.max(0, a / 14)), d = Math.max(0, a - 14)
+  return (4 + fbm(x * 0.03, z * 0.03, 2) * 22 + d * 0.5 + fbm(x * 0.12, z * 0.12, 5) * 3) * ramp * ramp * (3 - 2 * ramp)
 }
 
 export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () => number): Seg => {
@@ -79,6 +82,9 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     new THREE.Matrix4().compose(new V(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new V(sx * mirror, sy, sz))
   const pick = (...ids: string[]) => ids[Math.floor(rng() * ids.length)]
 
+  const blob = (dim: number, x: number, z: number, sx: number, sz: number, parent: THREE.Object3D = s.group) => {
+    const o = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), w.ao[dim]); o.position.set(x, 0.03, z); o.scale.set(sx, 1, sz); o.renderOrder = 1; s.geos.push(o.geometry); parent.add(o)
+  }
   const pit = (k: number) => k < 0.2
   for (let dim = 0; dim < N; dim++) {
     const k = i < 2 || dim === s.clear ? 0.3 : rng()
@@ -107,21 +113,22 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
         place(id, dim, [mat4(side * (HW + 0.6 + thick * sc / 2), -1, zz + len / 2, rot + (side > 0 ? 0 : Math.PI), sc, sc * (0.9 + rng() * 0.3), sc)], s.group)
         zz += len * 0.85
       }
+      blob(dim, side * (HW - 1.2), zc, 7, SEG * 1.1)
       s.boxes.push({ min: new V(side > 0 ? HW : -HW - 1, -3, z1), max: new V(side > 0 ? HW + 1 : -HW, 16, z0), dim })
     }
 
     // ground cover
     const spots = (n: number) => [...Array(n)].map(() => new V((rng() - 0.5) * (HW * 2 - 2), 0, z1 + rng() * SEG)).filter(p => onFloor(p.x, p.z))
     const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, 0, p.z, rng() * 6.28, lo + rng() * (hi - lo))))
-    scatter("fern_02", 7, 0.7, 1.4); scatter("dandelion_01", 12, 0.8, 1.3); scatter("celandine_01", 30, 0.8, 1.5); scatter("periwinkle_plant", 6, 0.8, 1.3)
-    scatter("grass_medium_01", 40, 0.8, 1.6); scatter("grass_medium_02", 30, 0.8, 1.6); scatter("moss_01", 8, 0.8, 1.6)
-    scatter("shrub_02", 5, 0.9, 1.7); scatter("shrub_03", 3, 0.9, 1.6); scatter("dry_branches_medium_01", 2, 0.6, 1.1); scatter("tree_stump_01", 1, 0.8, 1.3)
+    scatter("fern_02", 12, 0.7, 1.4); scatter("dandelion_01", 30, 0.8, 1.3); scatter("celandine_01", 70, 0.8, 1.5); scatter("periwinkle_plant", 14, 0.8, 1.3)
+    scatter("grass_medium_01", 70, 0.8, 1.6); scatter("grass_medium_02", 60, 0.8, 1.6); scatter("moss_01", 20, 0.8, 1.6)
+    scatter("shrub_02", 8, 0.9, 1.7); scatter("shrub_03", 5, 0.9, 1.6); scatter("dry_branches_medium_01", 2, 0.6, 1.1); scatter("tree_stump_01", 1, 0.8, 1.3)
     place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, -0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)))
 
     if (k > 0.6) for (let j = 0; j < 3; j++) {
       const id = pick("namaqualand_boulder_03", "namaqualand_boulder_05", "boulder_01"), m = w.models[id], sz = m.box.getSize(new V())
       const x = -HW + 4 + rng() * (HW * 2 - 8), z = z1 + 3 + rng() * (SEG - 6), h = 4 + rng() * 5, sc = h / sz.y, half = Math.max(0.8, Math.min(sz.x, sz.z) * sc * 0.3)
-      place(id, dim, [mat4(x, -0.1, z, rng() * 6.28, sc * 0.75, sc, sc * 0.75)], s.group)
+      place(id, dim, [mat4(x, -0.1, z, rng() * 6.28, sc * 0.75, sc, sc * 0.75)], s.group); blob(dim, x, z, half * 6, half * 6)
       s.boxes.push({ min: new V(x - half, 0, z - half), max: new V(x + half, h * 0.92, z + half), dim })
     }
     if (rng() < 0.6) {
@@ -132,17 +139,17 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     }
     if (k > 0.35 && k <= 0.6) {
       const pos = new V((rng() - 0.5) * (HW * 2 - 8), 0, z1 + 5 + rng() * (SEG - 10)), wk = walker(w.foe, dim)
-      wk.mesh.position.set(pos.x, 0, pos.z); s.group.add(wk.mesh)
-      s.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng() })
+      wk.mesh.position.set(pos.x, 0, pos.z); s.group.add(wk.mesh); blob(dim, 0, 0, 5.5, 5.5, wk.mesh)
+      s.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng(), hitT: 0 })
     }
   }
 
   // hills with trees behind the cliffs, shared by every dimension
   for (const side of [-1, 1]) {
-    const geo = new THREE.PlaneGeometry(90, SEG, 36, 20); geo.rotateX(-Math.PI / 2)
+    const geo = new THREE.PlaneGeometry(90, SEG, 45, 20); geo.rotateX(-Math.PI / 2)
     const p = geo.attributes.position, uv = geo.attributes.uv, rockW: number[] = []
     for (let n = 0; n < p.count; n++) {
-      const wx = side * (HW + 6 + p.getX(n) + 45), wz = zc + p.getZ(n)
+      const wx = side * (HW + p.getX(n) + 45), wz = zc + p.getZ(n)
       p.setXYZ(n, wx, hillY(wx, wz), wz); uv.setXY(n, wx / 6, wz / 6)
     }
     geo.computeVertexNormals()
@@ -151,8 +158,8 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     geo.setAttribute("aRock", new THREE.Float32BufferAttribute(rockW, 1))
     mesh(geo, w.hill, 0, 0, 0, false)
     for (const [hi, lo] of [["fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
-      const ms = [...Array(7)].map(() => {
-        const wx = side * (HW + 12 + rng() * 70), wz = zc + (rng() - 0.5) * SEG, sz = w.models[hi].box.getSize(new V()), sc = (10 + rng() * 9) / sz.y
+      const ms = [...Array(16)].map(() => {
+        const wx = side * (HW + 16 + rng() * 70), wz = zc + (rng() - 0.5) * SEG, sz = w.models[hi].box.getSize(new V()), sc = (10 + rng() * 9) / sz.y
         return mat4(wx, hillY(wx, wz) - 0.3, wz, rng() * 6.28, sc)
       })
       for (const [id, list] of [[hi, s.trees.hi], [lo, s.trees.lo]] as const) for (const im of place(id, 0, ms, s.group)) {

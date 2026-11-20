@@ -66,7 +66,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
   const segs = new Map<number, Seg>()
-  const gen = (i: number) => segs.set(i, buildSegment(scene, world, i, rng(i * 7919 + 13)))
+  const genMs: number[] = []
+  const gen = (i: number) => { const t = performance.now(); segs.set(i, buildSegment(scene, world, i, rng(i * 7919 + 13))); genMs.push(Math.round(performance.now() - t)) }
   const st = { pos: new V(0, 0.01, -4), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
     wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
@@ -96,6 +97,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     d = target = s.clear
   }
 
+  const boom = new THREE.PointLight(0xffa040, 0, 30); scene.add(boom)
   const beams: { mesh: THREE.Mesh; life: number }[] = []
   const beam = (a: THREE.Vector3, b: THREE.Vector3, r: number, life: number) => {
     const mesh = new THREE.Mesh(beamGeo, beamMat), len = a.distanceTo(b)
@@ -116,12 +118,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     const end = o.clone().addScaledVector(dir, tMin), mz = vm.muzzle.getWorldPosition(new V())
     if (hit) {
-      st.hit = 0.12; fx.spark(end, 10, dir.clone().negate(), ORANGE)
+      st.hit = 0.12; hit.hitT = 0.14; fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if (--hit.hp <= 0) {
-        fx.spark(hit.pos.clone().setY(1.5), 60, new V(0, 1, 0), ORANGE); hit.mesh.removeFromParent(); st.kills++
+        const c = hit.pos.clone().setY(1.6)
+        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; hit.mesh.removeFromParent(); st.kills++
         for (const s of nearSegs()) s.enemies = s.enemies.filter(e => e !== hit)
       }
-    } else if (tMin < 150) fx.spark(end, 6, dir.clone().negate(), DUST)
+    } else if (tMin < 150) { fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
     beam(mz, end, 0.012, 0.05)
     const right = new V(1, 0, 0).applyQuaternion(cam.quaternion), up = new V(0, 1, 0).applyQuaternion(cam.quaternion)
     fx.casing(vm.eject.clone().add(vm.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
@@ -184,6 +187,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       const moving = dist < 70 && dist > 9
       e.update(DT, moving, time * 5)
+      if (e.hitT > 0) { e.hitT -= DT; e.mesh.position.x = e.pos.x + Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (moving) {
         e.pos.x = Math.max(-HW + 2, Math.min(HW - 2, e.pos.x + dx / dist * 2.5 * DT)); e.pos.z += dz / dist * 2.5 * DT; e.mesh.position.set(e.pos.x, 0, e.pos.z)
       }
@@ -210,20 +214,21 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
     cam.rotation.set(st.pitch, st.yaw, st.roll)
     cam.fov += (80 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
-    vm.root.position.set(0.14 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.13 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.32 + st.kick * 0.035)
-    vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8, -st.lookX * 0.8, st.slide ? -0.12 : 0)
+    vm.root.position.set(0.17 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.4 + st.kick * 0.035)
+    vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.1 - st.lookX * 0.8, st.slide ? -0.12 : 0)
     vm.flash.material.opacity = st.flash > 0 ? 1 : 0; vm.light.intensity = st.flash > 0 ? 6 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p)
     for (const [i, s] of segs) {
-      const near = Math.abs(i - segAt()) <= 3
-      s.detail.visible = near; s.trees.hi.forEach(o => (o.visible = near)); s.trees.lo.forEach(o => (o.visible = !near))
+      const d0 = Math.abs(i - segAt())
+      s.detail.visible = d0 <= 2; s.trees.hi.forEach(o => (o.visible = d0 <= 1)); s.trees.lo.forEach(o => (o.visible = d0 > 1))
     }
     for (let i = 0; i < N; i++) {
       const a = Math.max(0, 1 - Math.abs(d - i) * 1.1), solid = i === nd()
       for (const m of registry[i]) { m.visible = a > 0; m.opacity = solid ? 1 : a * 0.25; m.transparent = !solid; m.depthWrite = solid }
     }
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
+    boom.intensity = Math.max(0, boom.intensity - dt * 300)
     fx.update(dt, cam.position)
     post.update(SUN, d, time); post.composer.render()
 
@@ -255,7 +260,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   gen(0); gen(1); gen(2)
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, segs }
+  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()
