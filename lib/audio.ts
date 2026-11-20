@@ -60,6 +60,7 @@ export type Sfx = ReturnType<typeof createSfx>
 // the live audio engine: created on the first user gesture, with 3D positioned sounds, distance falloff and a master limiter
 export const createSfx = () => {
   let ctx: AudioContext | null = null, engine: ReturnType<typeof makeSfx> | null = null, master: GainNode | null = null, muted = false
+  const log: { k: Kind; t: number; v: number; dist: number }[] = [], lp = { x: 0, y: 0, z: 0 }
   const init = () => {
     if (ctx) { if (ctx.state === "suspended") void ctx.resume(); return }
     ctx = new AudioContext(); master = ctx.createGain(); master.gain.value = 0.55
@@ -67,12 +68,14 @@ export const createSfx = () => {
     engine = makeSfx(ctx, master)
   }
   const listener = (pos: { x: number; y: number; z: number }, fwd: { x: number; y: number; z: number }) => {
+    lp.x = pos.x; lp.y = pos.y; lp.z = pos.z
     if (!ctx) return
     const l = ctx.listener, t = ctx.currentTime
     if (l.positionX) { l.positionX.setValueAtTime(pos.x, t); l.positionY.setValueAtTime(pos.y, t); l.positionZ.setValueAtTime(pos.z, t); l.forwardX.setValueAtTime(fwd.x, t); l.forwardY.setValueAtTime(fwd.y, t); l.forwardZ.setValueAtTime(fwd.z, t); l.upX.setValueAtTime(0, t); l.upY.setValueAtTime(1, t); l.upZ.setValueAtTime(0, t) }
   }
   // play(kind) is heard in the head; play(kind, position) comes from the world
   const play = (kind: Kind, at?: { x: number; y: number; z: number }, v = 1) => {
+    log.push({ k: kind, t: performance.now(), v, dist: at ? Math.hypot(at.x - lp.x, at.y - lp.y, at.z - lp.z) : 0 })
     if (!ctx || !engine || !master || muted) return
     if (!at) { engine.play(kind, master, v); return }
     const p = ctx.createPanner(); p.panningModel = "equalpower"; p.distanceModel = "inverse"; p.refDistance = kind === "bigboom" ? 30 : kind === "boom" ? 14 : 6; p.rolloffFactor = 1.3; p.maxDistance = 400
@@ -81,7 +84,7 @@ export const createSfx = () => {
     setTimeout(() => { p.disconnect(); g.disconnect() }, 3500)
   }
   return {
-    init, listener, play,
+    init, listener, play, log,
     draw: { start: () => { if (!muted) engine?.draw.start() }, set: (x: number) => engine?.draw.set(x), stop: () => engine?.draw.stop() },
     toggleMute: () => { muted = !muted; if (muted) engine?.draw.stop(); return muted },
   }
