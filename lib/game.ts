@@ -1,7 +1,6 @@
 import * as THREE from "three"
 import { makePost } from "./post"
-import { loadSky, loadPistol } from "./assets"
-import { flashTexture } from "./textures"
+import { loadSky } from "./assets"
 import { makeFx } from "./fx"
 import { Enemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
@@ -30,7 +29,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   if (signal.aborted) return () => {}
   const ctx = hud.getContext("2d")!
   hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
-  const [world, sky, pistol] = await Promise.all([loadWorld(), loadSky(), loadPistol()])
+  const [world, sky] = await Promise.all([loadWorld(), loadSky()])
   if (signal.aborted) return () => {}
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -58,7 +57,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const post = makePost(renderer, scene, cam)
 
   const dbg = { freezeVm: false, hideHint: false }
-  const fx = makeFx(scene), vm = makeViewmodel(flashTexture(), pistol, world.metal)
+  const fx = makeFx(scene), vm = makeViewmodel(world.metal)
   cam.add(vm.root)
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
@@ -67,7 +66,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -115,31 +114,41 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.quaternion.setFromUnitVectors(new V(0, 1, 0), b.clone().sub(a).normalize())
     scene.add(mesh); beams.push({ mesh, life })
   }
-  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.15, e.pos.y, e.pos.z - 1.15), new V(e.pos.x + 1.15, e.pos.y + 2.9, e.pos.z + 1.15)] as const
+  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.3, e.pos.y, e.pos.z - 1.3), new V(e.pos.x + 1.3, e.pos.y + 3, e.pos.z + 1.3)] as const
 
-  const shoot = () => {
+  // bow: hold to draw, release to loose. Arrows fly on an arc, stick into whatever they hit, and only touch the dimension they were fired in.
+  type Arrow = { mesh: THREE.Group; vel: THREE.Vector3; dim: number; power: number; life: number; stuck: boolean }
+  const arrows: Arrow[] = []
+  const arrowGeo = { shaft: new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6).rotateX(Math.PI / 2).translate(0, 0, 0.45), head: new THREE.ConeGeometry(0.03, 0.14, 6).rotateX(-Math.PI / 2).translate(0, 0, -0.02) }
+  const arrowMat = { shaft: new THREE.MeshStandardMaterial({ color: 0xc9a56a, roughness: 0.6 }), head: new THREE.MeshStandardMaterial({ color: 0xb8bdc4, metalness: 1, roughness: 0.25 }) }
+  const loose = (power: number) => {
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
-    dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
-    let tMin = 150, hit: Enemy | null = null
-    for (const b of nearBoxes()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
-    for (let t = 1; t < tMin; t += 1.5) if (o.y + dir.y * t < terrainY(o.x + dir.x * t, o.z + dir.z * t)) { tMin = t; break }
-    for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd()) {
-      const t = rayBox(o, dir, ...hitBox(e))
-      if (t < tMin) { tMin = t; hit = e }
+    const mesh = new THREE.Group(); mesh.add(new THREE.Mesh(arrowGeo.shaft, arrowMat.shaft), new THREE.Mesh(arrowGeo.head, arrowMat.head))
+    mesh.position.copy(o).addScaledVector(dir, 0.8).add(new V(0.12, -0.12, 0).applyQuaternion(cam.quaternion)); mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), dir); scene.add(mesh)
+    arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false })
+    st.kick = 1.6
+  }
+  const killWalker = (e: Enemy) => {
+    const c = e.pos.clone().setY(e.pos.y + 1.6)
+    fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; e.mesh.removeFromParent(); st.kills++
+    for (const ch of nearChunks(3)) ch.enemies = ch.enemies.filter(x => x !== e)
+  }
+  const arrowStep = (a: Arrow, dt: number) => {
+    if (a.stuck) { a.life -= dt; return }
+    a.life -= dt
+    const p = a.mesh.position, dir = a.vel.clone().normalize(), len = a.vel.length() * dt, ch = nearChunks(3)
+    let tMin = len, hit: Enemy | null = null
+    for (const c of ch) for (const b of c.boxes) if (b.dim === a.dim) tMin = Math.min(tMin, rayBox(p, dir, b.min, b.max))
+    for (const c of ch) for (const e of c.enemies) if (e.dim === a.dim) { const t = rayBox(p, dir, ...hitBox(e)); if (t < tMin) { tMin = t; hit = e } }
+    const end = p.clone().addScaledVector(dir, Math.min(tMin, len))
+    const gy = terrainY(end.x, end.z), onTerrain = end.y < gy
+    if (tMin < len || onTerrain) {
+      a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
+      if (hit) { st.hit = 0.15; hit.hitT = 0.14; hit.hp -= 4 + 12 * a.power * a.power; fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
+      else { fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
+      return
     }
-    const end = o.clone().addScaledVector(dir, tMin), mz = vm.muzzle.getWorldPosition(new V())
-    if (hit) {
-      st.hit = 0.12; hit.hitT = 0.14; fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
-      if (--hit.hp <= 0) {
-        const c = hit.pos.clone().setY(hit.pos.y + 1.6)
-        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; hit.mesh.removeFromParent(); st.kills++
-        for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
-      }
-    } else if (tMin < 150) { fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
-    beam(mz, end, 0.012, 0.05)
-    const right = new V(1, 0, 0).applyQuaternion(cam.quaternion), up = new V(0, 1, 0).applyQuaternion(cam.quaternion)
-    fx.casing(vm.eject.clone().add(vm.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
-    st.kick = 1; st.flash = 0.05; vm.flash.material.rotation = Math.random() * 6
+    p.copy(end); a.vel.y -= 13 * dt; a.mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), a.vel.clone().normalize())
   }
 
   const enemyTick = (dt: number) => {
@@ -230,7 +239,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (!st.ground && st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW")) { st.wn.set(nx, 0, nz); st.wallT = 1.4 }
 
     st.fireT -= DT
-    if (st.fire && st.fireT <= 0) { shoot(); st.fireT = 0.09 }
+    if (st.fire && st.fireT <= 0) st.draw = Math.min(1, st.draw + DT / 0.55)
+    else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } st.draw = 0 }
+    for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
     best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
     cpT -= DT
     if (cpT <= 0 && st.ground && st.hp > 40) { cpT = 2; const q = chunks.get(chunkKey(...pc())); if (q && !q.pits.some(z => z.dim === nd() && Math.abs(p.x - (z.x0 + z.x1) / 2) < 14 && Math.abs(p.z - (z.z0 + z.z1) / 2) < 14)) checkpoint = { pos: p.clone(), dim: nd() } }
@@ -247,10 +258,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
     if (!dbg.freezeVm) cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
     if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
-    cam.fov += (80 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
-    if (!dbg.freezeVm) vm.root.position.set(0.15 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.55 + st.kick * 0.035)
+    cam.fov += (80 - st.draw * 14 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
+    if (!dbg.freezeVm) vm.root.position.set(0.15 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.2 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.7 + st.kick * 0.03 + st.draw * 0.05)
     if (!dbg.freezeVm) vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
-    vm.flash.material.opacity = st.flash > 0 ? 0.65 : 0; vm.light.intensity = st.flash > 0 ? 1.2 : 0
+    vm.setDraw(st.draw, st.fireT <= 0 || st.draw > 0)
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p)
     for (const c of chunks.values()) {
@@ -286,7 +297,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click shoot, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, hold click to draw the bow, release to loose, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0

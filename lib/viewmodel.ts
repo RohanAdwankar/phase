@@ -7,9 +7,8 @@ const V = THREE.Vector3
 const rbox = (w: number, h: number, d: number, r = 0.01) => new RoundedBoxGeometry(w, h, d, 3, r)
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
-export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferGeometry; mat: THREE.Material; box: THREE.Box3 }, armor: PBR) => {
+export const makeViewmodel = (armor: PBR) => {
   const root = new THREE.Group()
-  const solid = <T extends THREE.Material>(m: T) => { m.transparent = false; m.side = THREE.DoubleSide; return m }
   const trimNormal = armor.normalMap.clone(); trimNormal.repeat.set(0.4, 0.4); trimNormal.needsUpdate = true
   const gold = new THREE.MeshStandardMaterial({ color: 0xcfb273, metalness: 0.8, roughness: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.25, 0.25) })
   const grey = new THREE.MeshStandardMaterial({ color: 0x9ba1a9, metalness: 0.85, roughness: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.25, 0.25) })
@@ -17,11 +16,8 @@ export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.Buff
   const orange = new THREE.MeshStandardMaterial({ color: 0xe0561a, roughness: 0.4, metalness: 0.4 })
   const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff6a10).multiplyScalar(1.6), toneMapped: false })
 
-  const size = pistol.box.getSize(new V())
-  const gun = new THREE.Mesh(pistol.geo, pistol.mat)
-  gun.rotation.y = Math.PI / 2; gun.position.set(0, -pistol.box.min.y - size.y * 0.5, pistol.box.min.x + 0.07)
-  root.add(gun)
-  const len = size.x, top = size.y * 0.5, bottom = -top
+  const size = new V(0.3, 0.14, 0.05)
+  const top = size.y * 0.5, bottom = -top, gz0 = 0
 
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, p: THREE.Vector3, q?: THREE.Quaternion) => {
     const m = new THREE.Mesh(geo, mat); m.position.copy(p); if (q) m.quaternion.copy(q); root.add(m); return m
@@ -86,10 +82,58 @@ export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.Buff
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
   arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.017, 0.026)
 
-  const muzzle = new THREE.Object3D(); muzzle.position.set(0, size.y * 0.25, -len * 0.75); root.add(muzzle)
-  const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
-  flash.scale.setScalar(0.2); muzzle.add(flash)
-  const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
-  root.scale.setScalar(1.7); root.position.set(0.14, -0.13, -0.32)
-  return { root, muzzle, flash, light, eject: new V(0.03, size.y * 0.3, -len * 0.1) }
+  // recurve bow: a riser at the hand, two limbs that curve toward the archer, and a string between the tips
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.55, metalness: 0.05, normalMap: armor.normalMap, normalScale: new THREE.Vector2(0.3, 0.3) })
+  const stringMat = new THREE.MeshStandardMaterial({ color: 0xe8e0c8, roughness: 0.9 })
+  const LIMB = 0.27, TIPZ = 0.12
+  add(rbox(0.026, 0.19, 0.045, 0.01), wood, new V(0, 0.01, -0.012))
+  add(rbox(0.03, 0.05, 0.05, 0.01), gold, new V(0, 0.095, -0.012)); add(rbox(0.03, 0.05, 0.05, 0.01), gold, new V(0, -0.075, -0.012))
+  const limbs: THREE.Group[] = []
+  for (const s of [1, -1]) {
+    const g = new THREE.Group(); g.position.set(0, s * 0.11, 0); root.add(g)
+    const c = new THREE.CatmullRomCurve3([new V(0, 0, 0), new V(0, s * 0.07, 0.004), new V(0, s * 0.16, 0.03), new V(0, s * LIMB, TIPZ)])
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(c, 24, 0.0105, 10), wood))
+    for (const t of [0.15, 0.5, 0.85]) { const q = c.getPoint(t); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.003, 6, 14), gold); ring.position.copy(q); ring.quaternion.copy(align(c.getTangent(t), new V(0, 0, 1))); g.add(ring) }
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 10, 8), gold); tip.position.set(0, s * LIMB, TIPZ); g.add(tip)
+    limbs.push(g)
+  }
+  const tipY = 0.11 + LIMB, strAt = new V(0, 0, TIPZ + 0.01)
+  const strings = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 1, 6), stringMat); root.add(m); return m })
+  const setCyl = (m: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3) => { m.position.copy(a).lerp(b, 0.5); m.scale.set(1, a.distanceTo(b), 1); m.quaternion.copy(align(b.clone().sub(a))) }
+  // the arrow rests on the riser; its nock follows the string
+  const arrow = new THREE.Group(); root.add(arrow)
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0034, 0.0034, 0.62, 8), new THREE.MeshStandardMaterial({ color: 0xc9a56a, roughness: 0.6 })); shaft.rotation.x = Math.PI / 2; shaft.position.z = -0.31; arrow.add(shaft)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.0085, 0.05, 8), new THREE.MeshStandardMaterial({ color: 0xb8bdc4, metalness: 1, roughness: 0.25 })); head.rotation.x = -Math.PI / 2; head.position.z = -0.645; arrow.add(head)
+  for (const a of [0, 2.09, 4.19]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.0015, 0.022, 0.07), new THREE.MeshStandardMaterial({ color: a ? 0xe8e0d0 : 0xd9531a, roughness: 0.8, side: THREE.DoubleSide })); f.position.set(Math.sin(a) * 0.011, Math.cos(a) * 0.011, -0.05); f.rotation.z = -a; arrow.add(f) }
+
+  // drawing hand and forearm, positioned at the nock
+  const drawHand = new THREE.Group(); root.add(drawHand)
+  const dh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); drawHand.add(m); return m }
+  dh(rbox(0.05, 0.034, 0.07, 0.014), suit, 0, -0.012, 0.05)
+  dh(rbox(0.052, 0.012, 0.06, 0.005), gold, 0, 0.012, 0.05)
+  for (const x of [-0.016, 0, 0.016]) { dh(new THREE.CapsuleGeometry(0.0095, 0.036, 4, 8), suit, x, -0.006, 0.0, Math.PI / 2, 0, 0); dh(new THREE.CapsuleGeometry(0.0088, 0.028, 4, 8), suit, x, -0.02, -0.003, 0, 0, Math.PI / 2 * 0).rotation.x = 0.4 }
+  dh(new THREE.CapsuleGeometry(0.0095, 0.03, 4, 8), suit, 0.03, 0.002, 0.03, 0, 0, 0.6)
+  const forearm = new THREE.CatmullRomCurve3([new V(0, -0.012, 0.09), new V(-0.03, -0.045, 0.2), new V(-0.1, -0.12, 0.38), new V(-0.2, -0.26, 0.62)])
+  const ft = new THREE.Group(); drawHand.add(ft)
+  {
+    ;[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].forEach(i => { const a = forearm.getPoint(i / 14), b = forearm.getPoint((i + 1) / 14), r = lerp(0.017, 0.026, i / 14); const cy = new THREE.Mesh(new THREE.CylinderGeometry(lerp(0.017, 0.026, (i + 1) / 14), r, a.distanceTo(b) * 1.03, 14), suit); cy.position.copy(a).lerp(b, 0.5); cy.quaternion.copy(align(b.clone().sub(a))); ft.add(cy); const bl = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), suit); bl.position.copy(a); ft.add(bl) })
+    ;[0.2, 0.5, 0.8].forEach((t, k) => { const r = lerp(0.017, 0.026, t) + 0.004, c = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.004, k ? 0.03 : 0.04, 22), k % 2 ? grey : gold); c.position.copy(forearm.getPoint(t)); c.quaternion.copy(align(forearm.getTangent(t))); ft.add(c) })
+  }
+
+  let drawAmt = 0
+  const setDraw = (f: number, nocked: boolean) => {
+    drawAmt = f
+    const pull = 0.29 * f, mid = new V(0, 0, strAt.z + pull)
+    limbs[0].rotation.x = 0.13 * f; limbs[1].rotation.x = -0.13 * f
+    const tipZ = TIPZ - Math.sin(0.13 * f) * LIMB * 0.9
+    setCyl(strings[0], new V(0, tipY - (1 - Math.cos(0.13 * f)) * 0.0, tipZ), mid)
+    setCyl(strings[1], new V(0, -tipY + (1 - Math.cos(0.13 * f)) * 0.0, tipZ), mid)
+    arrow.visible = nocked; arrow.position.set(0, 0.012, mid.z)
+    drawHand.visible = f > 0.02 || nocked; drawHand.position.set(0, 0.0, mid.z)
+  }
+  setDraw(0, true)
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.012, -0.5); root.add(muzzle)
+  root.scale.setScalar(1.4); root.position.set(0.14, -0.2, -0.7)
+  return { root, muzzle, setDraw, tipY, get draw() { return drawAmt } }
+
 }

@@ -136,10 +136,10 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       // standing stones
       if (r() < 0.38 && !near0(cxm, czm, 26)) for (let j = 0; j < 1 + Math.floor(r() * 2); j++) {
         const id = ["namaqualand_boulder_03", "namaqualand_boulder_05", "boulder_01"][Math.floor(r() * 3)], sz = w.models[id].box.getSize(new V())
-        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 4 + r() * 5, sc = h / sz.y, half = Math.max(0.8, Math.min(sz.x, sz.z) * sc * 0.3), ty = terrainY(x, z)
+        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 4 + r() * 5, sc = h / sz.y, hx = sz.x * sc * 0.75 * 0.36, hz = sz.z * sc * 0.75 * 0.36, half = Math.max(hx, hz), ty = terrainY(x, z)
         if (pits.some(q => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3)) continue
         place(id, dim, [mat4(x, ty - 0.2, z, r() * 6.28, sc * 0.75, sc, sc * 0.75)]); blob(dim, x, z, half * 6, half * 6)
-        c.boxes.push({ min: new V(x - half, ty - 0.6, z - half), max: new V(x + half, ty + h * 0.92, z + half), dim })
+        c.boxes.push({ min: new V(x - hx, ty - 0.6, z - hz), max: new V(x + hx, ty + h * 0.92, z + hz), dim })
       }
       // floating rocks to jump between
       if (r() < 0.3 && !near0(cxm, czm, 20)) {
@@ -165,8 +165,9 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       const sl = Math.min(CELL * 1.12 / long, 17 / sz.y), st = Math.min(sl, 5.2 / thick), ry = (vertical ? 0 : Math.PI / 2) + (longX ? Math.PI / 2 : 0) + (hash(dim, i, j, 5) < 0.5 ? 0 : Math.PI)
       const m = [mat4(wx, ty - 1.2, wz, ry, longX ? sl : st, sl * (0.9 + 0.3 * hash(dim, i, j, 6)), longX ? st : sl)]
       c.lods.hi.push(...place(id, dim, m)); c.lods.lo.push(...place(id + "_lo", dim, m))
-      const t = 2.4
-      c.boxes.push({ min: new V(wx - (vertical ? t : CELL / 2 + 1), -30, wz - (vertical ? CELL / 2 + 1 : t)), max: new V(wx + (vertical ? t : CELL / 2 + 1), ty + 17, wz + (vertical ? CELL / 2 + 1 : t)), dim })
+      // collide against the real footprint of the placed rock, not a thin slab
+      const bb = w.models[id].box.clone().applyMatrix4(m[0]), sh = 0.06 * Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z)
+      c.boxes.push({ min: new V(bb.min.x + sh, -30, bb.min.z + sh), max: new V(bb.max.x - sh, bb.max.y, bb.max.z - sh), dim })
       blob(dim, wx, wz, vertical ? 8 : CELL * 1.2, vertical ? CELL * 1.2 : 8)
     }
   }
