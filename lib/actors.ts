@@ -34,7 +34,7 @@ const L1 = 1.25, L2 = 1.5
 export const walker = (m: FoeMats, dim: number) => {
   const g = new THREE.Group(), legs: Leg[] = []
   const part = (geo: THREE.BufferGeometry, mat: Mat, x: number, y: number, z: number, parent: THREE.Object3D = g) => {
-    const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh); return mesh
+    const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y, z); parent.add(mesh); return mesh
   }
   // armoured shell: a lathe profile gives a smooth dome with a lip instead of a bare sphere
   const shell = new THREE.LatheGeometry([[0.001, 0.62], [0.42, 0.6], [0.8, 0.5], [1.05, 0.28], [1.12, 0.05], [1.08, -0.05], [1.14, -0.12], [1.0, -0.2], [0.001, -0.22]].map(([x, y]) => new THREE.Vector2(x, y)), 48)

@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { makePost } from "./post"
-import { loadSky, loadPistol } from "./assets"
+import { loadPistol } from "./assets"
+import { makeSky, SUN, skyTime } from "./sky"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
 import { Enemy } from "./actors"
@@ -32,21 +33,19 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   if (signal.aborted) return () => {}
   const ctx = hud.getContext("2d")!
   hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
-  const [world, sky, pistolModel] = await Promise.all([loadWorld(), loadSky(), loadPistol()])
+  const [world, pistolModel] = await Promise.all([loadWorld(), loadPistol()])
   if (signal.aborted) return () => {}
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
   const scene = new THREE.Scene()
-  scene.background = sky.tex; scene.environmentIntensity = 1
-  const az = (v: THREE.Vector3) => Math.atan2(v.z, v.x), spin = az(sky.sun) - az(new THREE.Vector3(-0.9, 0, -0.3))
-  scene.backgroundRotation.y = spin
-  // the sky has nothing below the horizon, so bake a grassy ground into the reflection environment too
-  const envScene = new THREE.Scene(); envScene.background = sky.tex; envScene.backgroundRotation.y = spin
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6b7a3a).multiplyScalar(0.7) }))
+  scene.environmentIntensity = 0.9
+  const sky = makeSky(700); sky.renderOrder = -1; scene.add(sky)
+  // the reflection environment is the same painted sky over a green ground
+  const envScene = new THREE.Scene(); envScene.add(makeSky(50))
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 32), new THREE.MeshBasicMaterial({ color: 0x6b9a3a }))
   ground.rotation.x = -Math.PI / 2; ground.position.y = -1; envScene.add(ground)
   scene.environment = new THREE.PMREMGenerator(renderer).fromScene(envScene, 0.02).texture
-  const SUN = sky.sun.clone().applyEuler(scene.backgroundRotation)
   scene.fog = new THREE.FogExp2(0xbdd0e4, 0.0034)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 1000)
   cam.rotation.order = "YXZ"; scene.add(cam)
@@ -396,7 +395,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     bow.setDraw(st.draw, st.fireT <= 0 || st.draw > 0)
     pistol.flash.material.opacity = st.flash > 0 ? 0.65 : 0; pistol.light.intensity = st.flash > 0 ? 1.2 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
-    uPlayer.value.copy(p)
+    uPlayer.value.copy(p); sky.position.copy(cam.position); skyTime.value = time
+    // walkers cost ~100 draw calls each, so only the ones that are close and in a visible dimension are drawn
+    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = Math.abs(e.dim - d) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 60
     for (const c of chunks.values()) {
       const r = ring(c)
       if (c.detail) c.detail.visible = r <= 1

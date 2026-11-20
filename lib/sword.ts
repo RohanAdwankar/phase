@@ -76,7 +76,7 @@ export const makeSword = (armor: PBR) => {
   const rightY = [top * -0.1, bottom * 0.35, bottom * 0.75]
   rightY.forEach(y => finger(y, 30 * rad, 215 * rad, 1, 0.0115, suit))
   add(rbox(0.05, size.y * 0.62, 0.052, 0.014), suit, new V(gx + 0.03, bottom * 0.4, gz + 0.045), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
-  add(rbox(0.012, size.y * 0.56, 0.055, 0.005), gold, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
+  add(rbox(0.012, size.y * 0.56, 0.055, 0.005), suit, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
   for (const y of rightY) add(rbox(0.014, 0.017, 0.022, 0.004), grey, new V(gx + 0.043, y, gz + 0.075))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)

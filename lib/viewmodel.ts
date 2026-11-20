@@ -76,7 +76,7 @@ export const makeViewmodel = (armor: PBR) => {
   const rightY = [top * -0.1, bottom * 0.35, bottom * 0.75]
   rightY.forEach(y => finger(y, 30 * rad, 215 * rad, 1, 0.0115, suit))
   add(rbox(0.05, size.y * 0.62, 0.052, 0.014), suit, new V(gx + 0.03, bottom * 0.4, gz + 0.045), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
-  add(rbox(0.012, size.y * 0.56, 0.055, 0.005), gold, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
+  add(rbox(0.012, size.y * 0.56, 0.055, 0.005), suit, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
   for (const y of rightY) add(rbox(0.014, 0.017, 0.022, 0.004), grey, new V(gx + 0.043, y, gz + 0.075))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
@@ -84,10 +84,11 @@ export const makeViewmodel = (armor: PBR) => {
 
   // recurve bow: a riser at the hand, two limbs that curve toward the archer, and a string between the tips
   const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.55, metalness: 0.05, normalMap: armor.normalMap, normalScale: new THREE.Vector2(0.3, 0.3) })
+  const leather = new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.9 })
   const stringMat = new THREE.MeshStandardMaterial({ color: 0xe8e0c8, roughness: 0.9 })
   const LIMB = 0.27, TIPZ = 0.12
   add(rbox(0.026, 0.19, 0.045, 0.01), wood, new V(0, 0.01, -0.012))
-  add(rbox(0.03, 0.05, 0.05, 0.01), gold, new V(0, 0.095, -0.012)); add(rbox(0.03, 0.05, 0.05, 0.01), gold, new V(0, -0.075, -0.012))
+  add(new THREE.CylinderGeometry(0.019, 0.019, 0.07, 14), leather, new V(0, 0.095, -0.012)); add(new THREE.CylinderGeometry(0.019, 0.019, 0.05, 14), leather, new V(0, -0.075, -0.012))
   const limbs: THREE.Group[] = []
   for (const s of [1, -1]) {
     const g = new THREE.Group(); g.position.set(0, s * 0.11, 0); root.add(g)
@@ -110,7 +111,7 @@ export const makeViewmodel = (armor: PBR) => {
   const drawHand = new THREE.Group(); root.add(drawHand)
   const dh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); drawHand.add(m); return m }
   dh(rbox(0.05, 0.034, 0.07, 0.014), suit, 0, -0.012, 0.05)
-  dh(rbox(0.052, 0.012, 0.06, 0.005), gold, 0, 0.012, 0.05)
+  dh(rbox(0.052, 0.012, 0.06, 0.005), suit, 0, 0.012, 0.05)
   for (const x of [-0.016, 0, 0.016]) { dh(new THREE.CapsuleGeometry(0.0095, 0.036, 4, 8), suit, x, -0.006, 0.0, Math.PI / 2, 0, 0); dh(new THREE.CapsuleGeometry(0.0088, 0.028, 4, 8), suit, x, -0.02, -0.003, 0, 0, Math.PI / 2 * 0).rotation.x = 0.4 }
   dh(new THREE.CapsuleGeometry(0.0095, 0.03, 4, 8), suit, 0.03, 0.002, 0.03, 0, 0, 0.6)
   const forearm = new THREE.CatmullRomCurve3([new V(0, -0.012, 0.09), new V(-0.03, -0.045, 0.2), new V(-0.1, -0.12, 0.38), new V(-0.2, -0.26, 0.62)])
