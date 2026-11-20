@@ -86,7 +86,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -157,9 +157,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (hit) { st.ground = false; st.jumps = 0; fx.spark(new V(st.pos.x, st.pos.y + 0.3, st.pos.z), 36, new V(0, 1, 0), DUST); fx.smoke(new V(st.pos.x, st.pos.y, st.pos.z), 4, DUST, 1) }
   }
   let checkpoint = { pos: st.pos.clone(), dim: 2 }, cpT = 0
+  const die = (why: string) => {
+    if (st.deadT > 0) return
+    st.deadT = st.deadLen; st.cause = why; st.deaths++; st.fire = false; st.draw = 0; st.charge = 0; st.swing = 0; st.surge = 0
+    sfx.draw.stop(); sfx.play("death"); fx.spark(new V(st.pos.x, st.pos.y + 1, st.pos.z), 50, new V(0, 1, 0), new THREE.Color(0xff4020))
+  }
   const respawn = () => {
     st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
     d = target = checkpoint.dim
+    st.inv = 2.5; st.respawnFx = 1.4; st.hurt = 0; hurts.length = 0; sfx.play("respawn")
   }
 
   const boom = new THREE.PointLight(0xffa040, 0, 30); scene.add(boom)
@@ -244,11 +250,18 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.sdir.copy(f); st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
     { const back = new V(st.pos.x - f.x * 3, st.pos.y + 0.2, st.pos.z - f.z * 3); fx.spark(back, 8, f.clone().negate(), DUST); fx.smoke(back, 3, DUST, 1.2) }
   }
+  // a dying walker blows up: a big burst that hurts neighbours, and any TNT it was standing on goes off too
+  const dying = new Set<Enemy>()
   const killWalker = (e: Enemy) => {
+    if (dying.has(e)) return
+    dying.add(e)
     sfx.play("die", e.pos)
-    const c = e.pos.clone().setY(e.pos.y + 1.6)
-    fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; e.mesh.removeFromParent(); st.kills++
+    e.mesh.removeFromParent(); st.kills++
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
+    const c = e.pos.clone().setY(e.pos.y + 1.5)
+    for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
+    explode(c, e.dim, 6.5, 9, 0.7, 0)
+    fx.spark(c, 140, new V(0, 1, 0), ORANGE); fx.smoke(c, 12, new THREE.Color(0x2a2a2a), 2.2)
   }
   const arrowStep = (a: Arrow, dt: number) => {
     if (a.stuck) { a.life -= dt; return }
@@ -297,7 +310,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     m.scale.setScalar(TS)
     return m
   }
-  const explode = (pos: THREE.Vector3, dim: number, radius: number, dmg: number, shake: number) => {
+  const explode = (pos: THREE.Vector3, dim: number, radius: number, dmg: number, shake: number, chain = radius * 0.7) => {
     for (const c of chunks.values()) for (const e of [...c.enemies]) {
       if (e.dim !== dim || Math.abs(e.pos.x - pos.x) > radius || Math.abs(e.pos.z - pos.z) > radius) continue
       const dx = e.pos.x - pos.x, dy = e.pos.y + 1.5 - pos.y, dz = e.pos.z - pos.z, dist = Math.hypot(dx, dy, dz)
@@ -305,9 +318,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.hp -= dmg * (1 - 0.65 * dist / radius); e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
       if (e.hp <= 0) killWalker(e)
     }
-    for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < radius * 0.7 && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
+    for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < chain && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
     const dp = st.pos.clone().add(new V(0, 1, 0)).sub(pos), dist = dp.length()
-    if (dim === nd() && dist < radius) { dp.normalize().multiplyScalar((1 - dist / radius) * 22); st.vel.add(dp); st.vel.y = Math.max(st.vel.y, dp.y + 3); st.ground = false; st.hurt = Math.max(st.hurt, 0.15 * (1 - dist / radius)); st.hp -= 12 * (1 - dist / radius) * (dist < radius * 0.35 ? 1 : 0) }
+    if (dim === nd() && dist < radius) { dp.normalize().multiplyScalar((1 - dist / radius) * 22); st.vel.add(dp); st.vel.y = Math.max(st.vel.y, dp.y + 3); st.ground = false; st.hurt = Math.max(st.hurt, 0.15 * (1 - dist / radius)); if (st.inv <= 0 && st.deadT <= 0 && dist < radius * 0.35) { st.hp -= 12 * (1 - dist / radius); st.cause = "caught in a blast" } }
     sfx.play(radius > 11 ? "bigboom" : "boom", pos, Math.min(1.5, 0.8 + radius / 30))
     const sc = radius / 7
     fx.spark(pos, Math.min(300, Math.round(80 * sc)), new V(0, 1, 0), ORANGE); fx.smoke(pos, Math.min(30, Math.round(12 * sc)), new THREE.Color(0x2a2a2a), 1.8 * sc); boom.position.copy(pos); boom.intensity = 90 * Math.min(3, sc)
@@ -384,7 +397,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         e.fireT = 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
-        if (Math.random() < 0.55) { sfx.play("hurt"); st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        if (Math.random() < 0.55 && st.inv <= 0 && st.deadT <= 0) { st.cause = "shot by a walker"; sfx.play("hurt"); st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
@@ -421,6 +434,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
 
   const step = () => {
+    st.inv = Math.max(0, st.inv - DT)
+    if (st.deadT > 0) { st.deadT -= DT; st.vel.set(0, 0, 0); if (st.deadT <= 0) respawn(); return }
     const p = st.pos, v = st.vel, bx = nearBoxes()
     const fwd = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
     const wish = new V().addScaledVector(fwd, +on("KeyW") - +on("KeyS")).addScaledVector(right, +on("KeyD") - +on("KeyA"))
@@ -499,7 +514,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
     cpT -= DT
     if (cpT <= 0 && st.ground && st.hp > 40) { cpT = 2; const q = chunks.get(chunkKey(...pc())); if (q && !q.pits.some(z => z.dim === nd() && Math.abs(p.x - (z.x0 + z.x1) / 2) < 14 && Math.abs(p.z - (z.z0 + z.z1) / 2) < 14)) checkpoint = { pos: p.clone(), dim: nd() } }
-    if (st.hp <= 0 || p.y < terrainY(p.x, p.z) - 8.5 || p.y < -60) respawn()
+    if (st.hp <= 0) die(st.cause || "you were killed")
+    else if (p.y < terrainY(p.x, p.z) - 8.5 || p.y < -60) die("fell into the void")
     p.y = Math.min(p.y, 80)
   }
 
@@ -511,7 +527,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.bob += dt * speed * (st.ground && !st.slide ? 1 : 0) * 0.9
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
     st.shake = Math.max(0, st.shake - dt * 2.2); cam.position.set(p.x + (Math.random() - 0.5) * st.shake * 0.5, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10) + (Math.random() - 0.5) * st.shake * 0.5, p.z)
-    if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
+    const dp = st.deadT > 0 ? 1 - st.deadT / st.deadLen : 0, dfall = dp * dp
+    if (!dbg.freezeVm) cam.rotation.set(st.pitch - 0.5 * dfall, st.yaw, st.roll + 1.25 * dfall)
+    if (dp > 0) cam.position.y -= 1.15 * dfall
     cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 8 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
       const sway = st.lookX * 0.4, lift = st.lookY * 0.4, bobY = Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0)
@@ -575,6 +593,27 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     calm += ((st.surge > 0 ? 1 : 0) - calm) * Math.min(1, dt * 14); post.update(SUN, d, time, calm); post.composer.render()
 
     ctx.clearRect(0, 0, w, h)
+    {
+      const alive = st.deadT <= 0
+      pistol.root.visible = alive && weapon === "pistol"; bow.root.visible = alive && weapon === "bow"; swordPivot.visible = alive && weapon === "sword"
+      ctx.textAlign = "center"
+      if (!alive) {
+        // death: the view tips over and the screen drains to dark red, with what killed you
+        const k = Math.min(1, dp * 1.6), fade = Math.max(0, (dp - 0.55) / 0.45)
+        const gr = ctx.createRadialGradient(w / 2, h / 2, h * 0.1, w / 2, h / 2, h * 0.9); gr.addColorStop(0, `rgba(60,0,0,${0.35 * k})`); gr.addColorStop(1, `rgba(120,0,0,${0.85 * k})`)
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h); ctx.fillStyle = `rgba(0,0,0,${0.9 * fade})`; ctx.fillRect(0, 0, w, h)
+        ctx.shadowColor = "#000"; ctx.shadowBlur = 12; ctx.fillStyle = `rgba(255,255,255,${Math.min(1, dp * 3)})`; ctx.font = "700 72px ui-sans-serif, system-ui, sans-serif"; ctx.fillText("you died", w / 2, h / 2 - 8)
+        ctx.font = "20px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,190,170,${Math.min(1, dp * 3)})`; ctx.fillText(st.cause, w / 2, h / 2 + 30)
+        ctx.fillStyle = `rgba(255,255,255,${0.6 * fade})`; ctx.fillText("respawning at your last checkpoint", w / 2, h / 2 + 62)
+      }
+      if (st.respawnFx > 0) {
+        st.respawnFx = Math.max(0, st.respawnFx - dt); const r = st.respawnFx / 1.4
+        ctx.fillStyle = `rgba(210,240,255,${0.85 * r * r})`; ctx.fillRect(0, 0, w, h)
+        ctx.shadowColor = "#000"; ctx.shadowBlur = 8; ctx.font = "700 44px ui-sans-serif, system-ui, sans-serif"; ctx.fillStyle = `rgba(255,255,255,${Math.min(1, r * 2)})`; ctx.fillText("respawned", w / 2, h / 2 - 40)
+      }
+      if (st.inv > 0 && alive) { const a = 0.18 + 0.1 * Math.sin(time * 14), gr = ctx.createRadialGradient(w / 2, h / 2, h * 0.5, w / 2, h / 2, h * 0.95); gr.addColorStop(0, "rgba(120,200,255,0)"); gr.addColorStop(1, `rgba(120,200,255,${a})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h) }
+      ctx.textAlign = "left"; ctx.shadowBlur = 3
+    }
     for (let i = hurts.length - 1; i >= 0; i--) {
       const hh = hurts[i]; hh.t -= dt * 1.6; if (hh.t <= 0) { hurts.splice(i, 1); continue }
       // angle of the shooter relative to where the camera is facing: 0 is straight ahead, positive is to the right
@@ -589,7 +628,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tCd, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = cd > 0 ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`G ${weapon === "pistol" ? "grenade" : "tnt"}${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}${weapon === "bow" && tn ? `  planted ${tn}` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
-    ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
+    ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4)
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
