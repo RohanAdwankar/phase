@@ -10,6 +10,7 @@ import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
 import { N, terrainY } from "./materials"
 import { gradient } from "./toon"
+import { createSfx, makeSfx } from "./audio"
 import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, Box, Chunk, CH } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -70,13 +71,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const post = makePost(renderer, scene, cam)
 
   const dbg = { freezeVm: false, hideHint: false }
+  const sfx = createSfx()
   const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), pistolModel, world.metal)
   const sword = makeSword(world.metal)
   type Weapon = "pistol" | "bow" | "sword"
   let weapon: Weapon = "pistol"
   const swordPivot = new THREE.Group(); swordPivot.position.set(0, -0.4, 0); swordPivot.add(sword.root); swordPivot.visible = false
   cam.add(bow.root, pistol.root, swordPivot); bow.root.visible = false
-  const swap = (w: Weapon) => { if (w === weapon) return; weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
+  const swap = (w: Weapon) => { if (w === weapon) return; sfx.draw.stop(); sfx.play("tick"); weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
@@ -84,7 +86,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -176,6 +178,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const arrowGeo = { shaft: new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6).rotateX(Math.PI / 2).translate(0, 0, 0.45), head: new THREE.ConeGeometry(0.03, 0.14, 6).rotateX(-Math.PI / 2).translate(0, 0, -0.02) }
   const arrowMat = { shaft: new THREE.MeshStandardMaterial({ color: 0xc9a56a, roughness: 0.6 }), head: new THREE.MeshStandardMaterial({ color: 0xb8bdc4, metalness: 1, roughness: 0.25 }) }
   const loose = (power: number) => {
+    sfx.draw.stop(); sfx.play("loose", undefined, 0.5 + 0.5 * power)
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     const mesh = new THREE.Group(); mesh.add(new THREE.Mesh(arrowGeo.shaft, arrowMat.shaft), new THREE.Mesh(arrowGeo.head, arrowMat.head))
     mesh.position.copy(o).addScaledVector(dir, 0.8).add(new V(0.12, -0.12, 0).applyQuaternion(cam.quaternion)); mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), dir); scene.add(mesh)
@@ -183,6 +186,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.kick = 1.6
   }
   const shootPistol = () => {
+    sfx.play("pistol")
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
@@ -194,13 +198,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V())
     if (hit) {
-      st.hit = 0.12; hit.hitT = 0.14; fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
+      st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if (--hit.hp <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
         fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++
         for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
       }
-    } else if (tMin < 150) { fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
+    } else if (tMin < 150) { sfx.play("thud", end, 0.6); fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
     beam(mz, end, 0.012, 0.05)
     const right = new V(1, 0, 0).applyQuaternion(cam.quaternion), up = new V(0, 1, 0).applyQuaternion(cam.quaternion)
     fx.casing(pistol.eject.clone().add(pistol.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
@@ -222,7 +226,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (dist > 6.5 || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
       any = true; cutAt(e, 6, 1.2)
     }
-    if (any) { st.hit = 0.15; st.kick = 1.4 }
+    if (any) { st.hit = 0.15; st.kick = 1.4; sfx.play("hit") }
   }
   // the 360 cut: every walker of this dimension within reach of the player at any moment of the surge is cut once
   const surgeCut = () => {
@@ -232,15 +236,16 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 5 ) continue
       st.surgeHit.add(e); any = true; cutAt(e, 9, 2.5)
     }
-    if (any) { st.hit = 0.2; st.kick = 2 }
+    if (any) { st.hit = 0.2; st.kick = 2; sfx.play("hit") }
   }
   const startSurge = (charge: number) => {
     const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), dist = 5 + 16 * charge, dur = 0.26 + 0.2 * charge
-    st.surge = 1; st.surgeLen = dur; st.surgeSpd = dist / dur; st.surgeHit.clear()
+    sfx.play("surge"); st.surge = 1; st.surgeLen = dur; st.surgeSpd = dist / dur; st.surgeHit.clear()
     st.sdir.copy(f); st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
     { const back = new V(st.pos.x - f.x * 3, st.pos.y + 0.2, st.pos.z - f.z * 3); fx.spark(back, 8, f.clone().negate(), DUST); fx.smoke(back, 3, DUST, 1.2) }
   }
   const killWalker = (e: Enemy) => {
+    sfx.play("die", e.pos)
     const c = e.pos.clone().setY(e.pos.y + 1.6)
     fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; e.mesh.removeFromParent(); st.kills++
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
@@ -264,8 +269,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (tMin < len || onTerrain) {
       a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
       if (tntHit) { (tntHit as Bomb).fuse = 0.05; a.life = 0; return }
-      if (hit) { st.hit = 0.15; hit.hitT = 0.14; hit.hp -= 4 + 12 * a.power * a.power; fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
-      else { fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
+      if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; hit.hp -= 4 + 12 * a.power * a.power; fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
+      else { sfx.play("thud", end, 0.7); fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
       return
     }
     p.copy(end); a.vel.y -= 13 * dt; a.mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), a.vel.clone().normalize())
@@ -301,6 +306,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < radius * 0.7 && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
     const dp = st.pos.clone().add(new V(0, 1, 0)).sub(pos), dist = dp.length()
     if (dim === nd() && dist < radius) { dp.normalize().multiplyScalar((1 - dist / radius) * 22); st.vel.add(dp); st.vel.y = Math.max(st.vel.y, dp.y + 3); st.ground = false; st.hurt = Math.max(st.hurt, 0.15 * (1 - dist / radius)); st.hp -= 12 * (1 - dist / radius) * (dist < radius * 0.35 ? 1 : 0) }
+    sfx.play(radius > 11 ? "bigboom" : "boom", pos, Math.min(1.5, 0.8 + radius / 30))
     const sc = radius / 7
     fx.spark(pos, Math.min(300, Math.round(80 * sc)), new V(0, 1, 0), ORANGE); fx.smoke(pos, Math.min(30, Math.round(12 * sc)), new THREE.Color(0x2a2a2a), 1.8 * sc); boom.position.copy(pos); boom.intensity = 90 * Math.min(3, sc)
     const wv = new THREE.Mesh(waveGeo, waveMat.clone()); wv.position.copy(pos); wv.scale.setScalar(0.5); scene.add(wv); waves.push({ mesh: wv, t: 0, r: radius })
@@ -312,7 +318,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const throwGrenade = () => {
     if (st.gCd > 0) return
-    st.gCd = 1.6; const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
+    st.gCd = 1.6; sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
     m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
     bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
   }
@@ -323,7 +329,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let s = 1; s < t; s += 0.5) if (o.y + dir.y * s < terrainY(o.x + dir.x * s, o.z + dir.z * s)) { t = s; break }
     const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.4)); p.y = Math.max(p.y, terrainY(p.x, p.z))
     const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 1.8)
-    st.tCd = 0.7
+    st.tCd = 0.7; sfx.play("clink")
     if (near) { near.n++; near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
     const m = tntMesh(1); m.position.copy(p); scene.add(m)
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
@@ -376,8 +382,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.dim === nd() && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
         e.fireT = 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
-        beam(from, to, 0.03, 0.12)
-        if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
+        if (Math.random() < 0.55) { sfx.play("hurt"); st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
@@ -442,14 +448,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       st.jump = false
       if (st.ground || st.coyote > 0) {
         if (crouch) { const dir = wish.lengthSq() ? wish : fwd; v.set(dir.x * 16, 9, dir.z * 16) } else v.y = 8
-        st.jumps = 1; st.slide = false; st.coyote = 0
-      } else if (st.wallT > 0) { v.addScaledVector(st.wn, 9); v.y = 9; st.wallT = 0; st.wallCD = 0.3; st.jumps = 1 }
-      else if (st.jumps < 2) { v.y = 7.5; st.jumps = 2 }
+        st.jumps = 1; st.slide = false; st.coyote = 0; sfx.play("jump")
+      } else if (st.wallT > 0) { v.addScaledVector(st.wn, 9); v.y = 9; st.wallT = 0; st.wallCD = 0.3; st.jumps = 1; sfx.play("jump2") }
+      else if (st.jumps < 2) { v.y = 7.5; st.jumps = 2; sfx.play("jump2") }
     }
 
     if (st.wallT > 0 && (!on("KeyW") || st.contact <= 0)) { st.wallT = 0; st.wallCD = 0.25 }
     if (st.wallT > 0 && (st.wallT -= DT) <= 0) st.wallCD = 0.6
     if (st.wallT > 0) {
+      if ((st.scrapeT -= DT) <= 0) { st.scrapeT = 0.11; sfx.play("scrape") }
       // climb the rock: run up the face while forward is held, drifting along it, until contact is lost over the top
       const tan = new V(-st.wn.z, 0, st.wn.x); if (tan.dot(fwd) < 0) tan.negate()
       v.copy(tan).multiplyScalar(3.5).addScaledVector(st.wn, -4); v.y = 11
@@ -458,13 +465,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
     if (st.surge > 0) { v.x = st.sdir.x * st.surgeSpd; v.z = st.sdir.z * st.surgeSpd }
     const h = st.slide ? 1 : 1.8
+    const vyBefore = v.y, wasGround = st.ground
     hitN.set(0, 0, 0)
     const nx = move("x", h, bx), nz = move("z", h, bx), ny = move("y", h, bx)
     st.ground = ny > 0
+    if (st.ground && !wasGround && vyBefore < -5) sfx.play("land", undefined, Math.min(1.3, -vyBefore / 12))
     if (st.ground && st.wallT <= 0) st.jumps = 0
     st.contact = nx || nz ? 0.2 : st.contact - DT
     // running into a rock face at speed latches onto it, from the ground or the air
-    if (st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW") && Math.hypot(v.x, v.z) + Math.abs(v.y) > 0 && hitN.lengthSq() > 0) { st.wn.copy(hitN); st.wallT = 1.8; st.ground = false }
+    if (st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW") && Math.hypot(v.x, v.z) + Math.abs(v.y) > 0 && hitN.lengthSq() > 0) { st.wn.copy(hitN); st.wallT = 1.8; st.ground = false; sfx.play("land", undefined, 0.5) }
 
     st.fireT -= DT
     if (weapon === "sword") {
@@ -475,16 +484,16 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         const before = st.swing; st.swing -= DT / SWING
         if (before > 0.55 && st.swing <= 0.55) swingCut()
         if (st.swing <= 0) { st.swing = 0; st.fireT = 0.04 }
-      } else if (st.fire && st.fireT <= 0) st.charge = Math.min(MAXCHARGE, st.charge + DT)
+      } else if (st.fire && st.fireT <= 0) { const before = st.charge; st.charge = Math.min(MAXCHARGE, st.charge + DT); if (before < 0.22 && st.charge >= 0.22) sfx.play("ready") }
       else if (st.charge > 0) {
-        if (st.charge < 0.22) { st.swing = 1; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
+        if (st.charge < 0.22) { st.swing = 1; sfx.play("whoosh"); const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
         else startSurge(st.charge / MAXCHARGE)
         st.charge = 0
       }
     }
     else if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
-    else if (st.fire && st.fireT <= 0) st.draw = Math.min(1, st.draw + DT / 0.55)
-    else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } st.draw = 0 }
+    else if (st.fire && st.fireT <= 0) { if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw) }
+    else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } else sfx.draw.stop(); st.draw = 0 }
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
     best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
     cpT -= DT
@@ -536,6 +545,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     pistol.flash.material.opacity = st.flash > 0 ? 0.65 : 0; pistol.light.intensity = st.flash > 0 ? 1.2 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p); sky.position.copy(cam.position); skyTime.value = time
+    sfx.listener(cam.position, cam.getWorldDirection(new V()))
+    if (st.ground && !st.slide && st.wallT <= 0) { st.stepD += speed * dt; if (st.stepD > 2.6) { st.stepD = 0; sfx.play("step", undefined, Math.min(1, speed / 10)) } }
+    if (nd() !== lastNd) { lastNd = nd(); sfx.play("phase") }
+    if (st.slide && st.ground && (st.scrapeT -= dt) <= 0) { st.scrapeT = 0.09; sfx.play("whoosh", undefined, 0.25) }
     // walkers cost ~100 draw calls each, so only the ones that are close and in a visible dimension are drawn
     for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = Math.abs(e.dim - d) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 60
     for (const c of chunks.values()) {
@@ -580,11 +593,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
-  let calm = 0
+  let calm = 0, lastNd = 2
   let manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
   const tick = (dt: number) => {
     acc += dt
@@ -613,11 +626,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
+    sfx.init()
     if (e.code === "Space") e.preventDefault()
     if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyG" && !e.repeat) { if (weapon === "pistol") throwGrenade(); else if (weapon === "bow") placeTnt() }
+    if (e.code === "KeyM" && !e.repeat) sfx.toggleMute()
     if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
     if (e.code === "KeyQ") target = Math.max(0, Math.round(target) - 1)
     if (e.code === "KeyE") target = Math.min(N - 1, Math.round(target) + 1)
@@ -633,7 +648,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const md = (e: MouseEvent) => { if (e.button === 0) st.fire = true; if (e.button === 2) st.glide = true }
   const mu = (e: MouseEvent) => { if (e.button === 0) st.fire = false; if (e.button === 2) st.glide = false }
   const wh = (e: WheelEvent) => { e.preventDefault(); lastWheel = performance.now(); target = Math.min(N - 1, Math.max(0, target + e.deltaY * 0.004)) }
-  const click = () => { if (!document.pointerLockElement) canvas.requestPointerLock() }
+  const click = () => { sfx.init(); if (!document.pointerLockElement) canvas.requestPointerLock() }
   const noMenu = (e: Event) => e.preventDefault()
   addEventListener("keydown", kd); addEventListener("keyup", ku); addEventListener("mousemove", mm)
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
