@@ -4,7 +4,7 @@ import { loadPistol } from "./assets"
 import { makeSky, SUN, skyTime } from "./sky"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
-import { Enemy } from "./actors"
+import { Enemy, Kind, makeEnemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
@@ -176,7 +176,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.quaternion.setFromUnitVectors(new V(0, 1, 0), b.clone().sub(a).normalize())
     scene.add(mesh); beams.push({ mesh, life })
   }
-  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.3, e.pos.y, e.pos.z - 1.3), new V(e.pos.x + 1.3, e.pos.y + 3, e.pos.z + 1.3)] as const
+  const hitBox = (e: Enemy) => [new V(e.pos.x - e.hr, e.pos.y, e.pos.z - e.hr), new V(e.pos.x + e.hr, e.pos.y + e.h, e.pos.z + e.hr)] as const
 
   // bow: hold to draw, release to loose. Arrows fly on an arc, stick into whatever they hit, and only touch the dimension they were fired in.
   type Arrow = { mesh: THREE.Group; vel: THREE.Vector3; dim: number; power: number; life: number; stuck: boolean }
@@ -229,7 +229,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const c of nearChunks(1)) for (const e of [...c.enemies]) {
       if (e.dim !== nd()) continue
       const dx = e.pos.x - p.x, dz = e.pos.z - p.z, dist = Math.hypot(dx, dz)
-      if (dist > 6.5 || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
+      if (dist > 6.5 + e.hr || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
       any = true; cutAt(e, 6, 1.2)
     }
     if (any) { st.hit = 0.15; st.kick = 1.4; sfx.play("hit") }
@@ -239,7 +239,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let any = false
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
       if (e.dim !== nd() || st.surgeHit.has(e)) continue
-      if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 5 ) continue
+      if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 5 + e.hr) continue
       st.surgeHit.add(e); any = true; cutAt(e, 9, 2.5)
     }
     if (any) { st.hit = 0.2; st.kick = 2; sfx.play("hit") }
@@ -260,8 +260,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
     const c = e.pos.clone().setY(e.pos.y + 1.5)
     for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
-    explode(c, e.dim, 6.5, 9, 0.7, 0)
-    fx.spark(c, 140, new V(0, 1, 0), ORANGE); fx.smoke(c, 12, new THREE.Color(0x2a2a2a), 2.2)
+    const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260] }[e.kind]
+    explode(c, e.dim, big[0], big[1], 0.7 + big[0] * 0.05, 0)
+    fx.spark(c, big[2], new V(0, 1, 0), ORANGE); fx.smoke(c, Math.round(big[0] * 2), new THREE.Color(0x2a2a2a), big[0] * 0.34)
   }
   const arrowStep = (a: Arrow, dt: number) => {
     if (a.stuck) { a.life -= dt; return }
@@ -377,48 +378,84 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     return true
   }
   // walkers are solid against every boulder and wall of their own dimension, however they got moved
-  const rocksNear = (e: Enemy) => { const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, e.dim, e.pos, 1.7) }
+  const rocksNear = (e: Enemy) => { const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, e.dim, e.pos, e.r) }
+  const hurtPlayer = (e: Enemy, dmg: number, why: string) => {
+    if (st.inv > 0 || st.deadT > 0) return
+    st.cause = why; sfx.play("hurt"); st.hp -= dmg; st.hurt = 0.35; hurts.push({ x: e.pos.x - st.pos.x, z: e.pos.z - st.pos.z, t: 1 })
+  }
   const enemyTick = (dt: number) => {
     const p = st.pos
-    for (const c of nearChunks(2)) for (const e of c.enemies) {
+    for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
       if (Math.abs(e.dim - d) > 1.1) continue
-      const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
+      let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
-      const moving = dist < 70 && dist > 9
-      if (moving) {
-        e.pos.x += dx / dist * 2.5 * dt; e.pos.z += dz / dist * 2.5 * dt
+      let moving = false, mx = 0, mz = 0
+      const live = e.dim === nd()
+      if (e.kind === "walker") { moving = dist < 70 && dist > 9; if (moving) { mx = dx / dist; mz = dz / dist } }
+      else if (e.kind === "swarmer") { moving = dist < 90 && dist > 1.4; if (moving) { mx = dx / dist; mz = dz / dist } }
+      else if (e.kind === "flyer") {
+        // close in to about 15 m then circle the player, bobbing up and down
+        moving = dist < 90
+        const want = 15, side = e.t2 || (e.t2 = Math.random() < 0.5 ? 1 : -1)
+        mx = (dist > want + 2 ? dx / dist : dist < want - 3 ? -dx / dist : 0) + (-dz / dist) * side * 0.8; mz = (dist > want + 2 ? dz / dist : dist < want - 3 ? -dz / dist : 0) + (dx / dist) * side * 0.8
+        const l = Math.hypot(mx, mz) || 1; mx /= l; mz /= l
+      } else {
+        // brute: lumbers, then charges; slams when in reach
+        e.t1 -= dt
+        const charging = e.t2 > 0; if (charging) e.t2 -= dt
+        moving = dist < 80 && dist > 3.6; if (moving) { mx = dx / dist; mz = dz / dist }
+        if (!charging && e.t1 <= 0 && dist < 26 && dist > 8) { e.t2 = 0.9; e.t1 = 3.2 }
+        if (dist < 5 && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < 6) { hurtPlayer(e, 24, "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
+        e.fireT -= dt
       }
+      const spd = e.kind === "brute" && e.t2 > 0 ? e.speed * 3.3 : e.speed
+      if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       rocksNear(e)
-      e.pos.y = terrainY(e.pos.x, e.pos.z)
+      const gy = terrainY(e.pos.x, e.pos.z)
+      e.pos.y = e.kind === "flyer" ? gy + e.fy + Math.sin(time * 2.2 + e.pos.x) * 0.7 : gy
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
-      e.update(dt, moving, time * 5)
+      e.update(dt, moving, time * 5, e.kind === "brute" ? Math.max(0, e.fireT / 0.9) : 0)
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
-      if (e.dim === nd() && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
-        e.fireT = 0.9 + Math.random() * 0.7
+      if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e); continue }
+      if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
+        e.fireT = e.kind === "flyer" ? 0.55 + Math.random() * 0.5 : 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
-        if (Math.random() < 0.55 && st.inv <= 0 && st.deadT <= 0) { st.cause = "shot by a walker"; sfx.play("hurt"); st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        if (Math.random() < (e.kind === "flyer" ? 0.4 : 0.55)) { hurtPlayer(e, e.kind === "flyer" ? 6 : 9, e.kind === "flyer" ? "shot by a drone" : "shot by a walker"); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
-  // walkers are solid: they push each other apart so they never overlap, and shove the player out of their body
   const separate = () => {
     const live: Enemy[] = []
     for (const c of nearChunks(2)) for (const e of c.enemies) if (Math.abs(e.dim - d) < 1.1) live.push(e)
     for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
       const a = live[i], b = live[j]; if (a.dim !== b.dim) continue
-      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, dist = Math.hypot(dx, dz), min = 3.6
+      if (Math.abs(a.pos.y - b.pos.y) > 3.5) continue
+      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, dist = Math.hypot(dx, dz), min = (a.r + b.r) * 1.05
       if (dist >= min) continue
       const nx = dist > 0.001 ? dx / dist : 1, nz = dist > 0.001 ? dz / dist : 0, push = (min - dist) * 0.5
       a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push
     }
     for (const e of live) { rocksNear(e); e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
     for (const e of live) if (e.dim === nd()) {
-      const dx = st.pos.x - e.pos.x, dz = st.pos.z - e.pos.z, dist = Math.hypot(dx, dz), min = 2.1
-      if (dist < min && st.pos.y < e.pos.y + 2.8 && st.pos.y + 1.8 > e.pos.y) { const k = dist > 0.001 ? 1 / dist : 0; st.pos.x = e.pos.x + (dist > 0.001 ? dx * k : 1) * min; st.pos.z = e.pos.z + (dist > 0.001 ? dz * k : 0) * min }
+      const dx = st.pos.x - e.pos.x, dz = st.pos.z - e.pos.z, dist = Math.hypot(dx, dz), min = e.hr + 0.5
+      if (e.kind !== "swarmer" && dist < min && st.pos.y < e.pos.y + e.h && st.pos.y + 1.8 > e.pos.y) { const k = dist > 0.001 ? 1 / dist : 0; st.pos.x = e.pos.x + (dist > 0.001 ? dx * k : 1) * min; st.pos.z = e.pos.z + (dist > 0.001 ? dz * k : 0) * min }
     }
   }
   // stream the endless world in and out around the player, building at most a couple of pieces per frame
+  // debug/recording: spawn a pack of enemies in a ring around the player
+  const summon = (kind: Kind, n: number, dmin: number, dmax: number, dim = nd(), yaw0 = 0, arc = Math.PI * 2) => {
+    const out: Enemy[] = []
+    for (let i = 0; i < n; i++) {
+      const a = yaw0 + (arc >= Math.PI * 2 ? Math.random() * arc : (Math.random() - 0.5) * arc), rr = dmin + Math.random() * (dmax - dmin)
+      const x = st.pos.x - Math.sin(a) * rr, z = st.pos.z - Math.cos(a) * rr, pos = new V(x, 0, z), e = makeEnemy(kind, world.foe, dim, pos)
+      const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, dim, pos, e.r)
+      pos.y = terrainY(pos.x, pos.z) + e.fy; e.mesh.position.copy(pos)
+      const ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) { continue }
+      ch.group.add(e.mesh); ch.enemies.push(e); out.push(e)
+    }
+    return out
+  }
   const stream = () => {
     const [px, pz] = pc()
     const want: [number, number][] = []
@@ -666,7 +703,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()

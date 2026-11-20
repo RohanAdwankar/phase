@@ -7,7 +7,16 @@ const V = THREE.Vector3
 const N = 5
 export type Mat = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial
 export type FoeMats = { olive: Mat[]; yellow: Mat[]; metal: Mat[]; lamp: Mat[] }
-export type Enemy = { mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number; hitT: number }
+export type Kind = "walker" | "swarmer" | "flyer" | "brute"
+// r is the body radius used for pushing units apart and out of rock, hr the radius of the hit box, h its height, fy the hover height
+export type Enemy = { kind: Kind; mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number, slam?: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number; hitT: number
+  r: number; hr: number; h: number; fy: number; speed: number; t1: number; t2: number }
+export const STATS: Record<Kind, { hp: number; r: number; hr: number; h: number; fy: number; speed: number }> = {
+  walker: { hp: 12, r: 1.8, hr: 1.3, h: 3, fy: 0, speed: 2.5 },
+  swarmer: { hp: 2, r: 0.7, hr: 0.75, h: 1.1, fy: 0, speed: 8.5 },
+  flyer: { hp: 6, r: 1.3, hr: 1.2, h: 1.4, fy: 5, speed: 6 },
+  brute: { hp: 45, r: 2.7, hr: 2.2, h: 4.4, fy: 0, speed: 3.4 },
+}
 
 const rbox = (w: number, h: number, d: number, r = 0.02) => new RoundedBoxGeometry(w, h, d, 3, r)
 const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
@@ -92,4 +101,62 @@ export const walker = (m: FoeMats, dim: number) => {
     })
   }
   return { mesh: g, turret, update }
+}
+
+const mk = (geo: THREE.BufferGeometry, mat: Mat, parent: THREE.Object3D, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m }
+
+// small fast bug that rushes the player and bursts on contact
+const swarmer = (m: FoeMats, dim: number) => {
+  const g = new THREE.Group(), legs: THREE.Mesh[] = []
+  const body = mk(new THREE.SphereGeometry(0.5, 14, 10), m.olive[dim], g, 0, 0.55, 0); body.scale.set(1, 0.72, 1.25)
+  mk(new THREE.SphereGeometry(0.34, 12, 9), m.yellow[dim], g, 0, 0.78, -0.4).scale.set(1, 0.8, 1)
+  for (const x of [-0.14, 0.14]) mk(new THREE.SphereGeometry(0.075, 8, 6), m.lamp[dim], g, x, 0.86, -0.68)
+  mk(new THREE.ConeGeometry(0.2, 0.55, 6), m.yellow[dim], g, 0, 0.62, 0.62).rotation.x = Math.PI / 2
+  for (const [sx, sz] of [[-1, -0.3], [1, -0.3], [-1, 0.2], [1, 0.2]]) { const l = mk(new THREE.CylinderGeometry(0.05, 0.04, 0.6, 5), m.metal[dim], g, sx * 0.5, 0.28, sz); l.rotation.z = sx * 0.7; legs.push(l) }
+  const update = (_dt: number, moving: boolean, phase: number) => { legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(phase * 3.2 + i * 1.7) * 0.7 : 0)); body.position.y = 0.55 + (moving ? Math.abs(Math.sin(phase * 3.2)) * 0.08 : 0) }
+  return { mesh: g, turret: body, update }
+}
+
+// hovering drone: disc body, glowing underside, three spinning rotors; it circles and shoots
+const flyer = (m: FoeMats, dim: number) => {
+  const g = new THREE.Group(), rotors: THREE.Mesh[] = []
+  const body = mk(new THREE.SphereGeometry(0.85, 18, 12), m.metal[dim], g, 0, 0.7, 0); body.scale.set(1.15, 0.5, 1.15)
+  mk(new THREE.SphereGeometry(0.5, 14, 10), m.yellow[dim], g, 0, 0.98, 0).scale.set(1, 0.6, 1)
+  mk(new THREE.TorusGeometry(0.72, 0.07, 6, 24), m.lamp[dim], g, 0, 0.5, 0).rotation.x = Math.PI / 2
+  mk(new THREE.SphereGeometry(0.14, 8, 6), m.lamp[dim], g, 0, 0.55, -0.9)
+  for (let i = 0; i < 3; i++) {
+    const a = i * 2.094, arm = new THREE.Group(); arm.position.set(Math.cos(a) * 0.95, 0.85, Math.sin(a) * 0.95); g.add(arm)
+    mk(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 6), m.metal[dim], arm, 0, -0.1, 0)
+    const rot = mk(new THREE.BoxGeometry(1.25, 0.03, 0.14), m.yellow[dim], arm, 0, 0.1, 0); rotors.push(rot)
+  }
+  const update = (dt: number) => { rotors.forEach((r, i) => (r.rotation.y += dt * (28 + i * 3))) }
+  return { mesh: g, turret: body, update }
+}
+
+// heavy melee brute: wide armoured torso, huge fists, slow but hits very hard
+const brute = (m: FoeMats, dim: number) => {
+  const g = new THREE.Group(), arms: THREE.Group[] = [], legs: THREE.Mesh[] = []
+  mk(rbox(2.6, 2.1, 2.1, 0.25), m.olive[dim], g, 0, 2.55, 0)
+  mk(rbox(2.9, 0.5, 2.3, 0.15), m.yellow[dim], g, 0, 3.55, 0)
+  mk(rbox(1.0, 0.9, 1.0, 0.2), m.metal[dim], g, 0, 4.0, -0.35)
+  mk(new THREE.BoxGeometry(0.9, 0.16, 0.1), m.lamp[dim], g, 0, 4.05, -0.88)
+  for (const x of [-0.55, 0.55]) mk(rbox(0.9, 1.0, 1.2, 0.2), m.metal[dim], g, x, 1.45, 0)
+  for (const s of [-1, 1]) {
+    const arm = new THREE.Group(); arm.position.set(s * 1.9, 3.3, 0); g.add(arm)
+    mk(rbox(0.9, 0.9, 0.9, 0.2), m.yellow[dim], arm, 0, 0, 0)
+    mk(new THREE.CylinderGeometry(0.34, 0.3, 1.5, 8), m.metal[dim], arm, 0, -0.9, 0)
+    mk(rbox(1.25, 1.15, 1.25, 0.25), m.olive[dim], arm, 0, -1.9, 0.1)
+    arms.push(arm)
+  }
+  for (const s of [-1, 1]) legs.push(mk(new THREE.CylinderGeometry(0.34, 0.4, 1.5, 8), m.metal[dim], g, s * 0.8, 0.75, 0))
+  const update = (_dt: number, moving: boolean, phase: number, slam = 0) => {
+    arms.forEach((a, i) => (a.rotation.x = slam > 0 ? -2.3 + (1 - slam) * 2.6 : moving ? Math.sin(phase * 1.4 + i * Math.PI) * 0.35 : 0))
+    legs.forEach((l, i) => (l.position.y = 0.75 + (moving ? Math.max(0, Math.sin(phase * 1.4 + i * Math.PI)) * 0.2 : 0)))
+  }
+  return { mesh: g, turret: g.children[2], update }
+}
+
+export const makeEnemy = (kind: Kind, m: FoeMats, dim: number, pos: THREE.Vector3): Enemy => {
+  const s = STATS[kind], b = kind === "walker" ? walker(m, dim) : kind === "swarmer" ? swarmer(m, dim) : kind === "flyer" ? flyer(m, dim) : brute(m, dim)
+  return { kind, mesh: b.mesh, update: b.update as Enemy["update"], turret: b.turret, pos, dim, hp: s.hp, fireT: 0.8 + Math.random(), hitT: 0, r: s.r, hr: s.hr, h: s.h, fy: s.fy, speed: s.speed, t1: 0, t2: 0 }
 }

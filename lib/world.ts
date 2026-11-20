@@ -3,7 +3,7 @@ import { PBR, Model, loadPBR, loadModel } from "./assets"
 import { N, track, untrack, grassMaterial, terrainY } from "./materials"
 import { PALETTE, gradient, groundTexture, flatten } from "./toon"
 import { BOULDERS, SLABS } from "./rocks"
-import { Enemy, makeFoeMats, walker } from "./actors"
+import { Enemy, Kind, STATS, makeFoeMats, makeEnemy } from "./actors"
 
 const V = THREE.Vector3
 // The world is an endless grid of chunks. Every dimension has its own layout drawn from a hash of its coordinates, so a
@@ -197,16 +197,19 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         c.boxes.push({ min: new V(x - 2.3, y, z - 2.3), max: new V(x + 2.3, y + 0.5, z + 2.3), dim })
         boulders(dim, [[x, y + 0.5 - 0.6 * 1.4, z, 3.1, 1.4, 3.1, r() * 6.28, r() * 2]], true)
       }
-      // a patrol of walkers
-      if (r() < 0.55 && !near0(cxm, czm, 30)) for (let m = 0; m < 1 + (r() < 0.4 ? 1 : 0); m++) {
-        const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12)
-        if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < 4.5)) continue
-        const wk = walker(w.foe, dim)
-        pos.y = terrainY(pos.x, pos.z); wk.mesh.position.copy(pos); c.group.add(wk.mesh); blob(dim, pos.x, pos.z, 5.5, 5.5)
-        c.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + r(), hitT: 0 })
+      // a patrol: a mix of walkers, swarmers that come in packs, flying drones and the occasional brute
+      if (r() < 0.6 && !near0(cxm, czm, 30)) {
+        const roll = r(), kind: Kind = roll < 0.4 ? "walker" : roll < 0.7 ? "swarmer" : roll < 0.88 ? "flyer" : "brute"
+        const n = kind === "swarmer" ? 3 + Math.floor(r() * 3) : kind === "walker" && r() < 0.4 ? 2 : 1
+        for (let m = 0; m < n; m++) {
+          const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12), rr = STATS[kind].r
+          if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < o.r + rr + 0.6)) continue
+          const e = makeEnemy(kind, w.foe, dim, pos)
+          pos.y = terrainY(pos.x, pos.z) + e.fy; e.mesh.position.copy(pos); c.group.add(e.mesh); if (kind !== "flyer") blob(dim, pos.x, pos.z, rr * 3, rr * 3)
+          c.enemies.push(e)
+        }
       }
     }
-
     // fractal maze walls: this chunk owns the lattice lines that fall inside it
     for (const vertical of [true, false]) for (let i = (vertical ? cx : cz) * 2; i < (vertical ? cx : cz) * 2 + 2; i++) for (let j = (vertical ? cz : cx) * 2; j < (vertical ? cz : cx) * 2 + 2; j++) {
       if (!wallAt(dim, vertical, i, j)) continue
@@ -225,7 +228,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
   }
 
   flushBoulders()
-  for (const e of c.enemies) { clearRock(c.boxes, e.dim, e.pos, 1.7); e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z); e.pos.y = terrainY(e.pos.x, e.pos.z); e.mesh.position.y = e.pos.y }
+  for (const e of c.enemies) { clearRock(c.boxes, e.dim, e.pos, e.r); e.pos.y = terrainY(e.pos.x, e.pos.z) + e.fy; e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z) }
 
   // trees are shared by every dimension; the full-detail copy shows near the player and a cheap copy further out
   const tr = rngFrom(cx, cz, 77)
