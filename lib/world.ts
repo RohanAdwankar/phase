@@ -191,7 +191,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z), hx = rad * 0.78
         if (pits.some(q => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3)) continue
         const rz2 = rad * (0.8 + 0.4 * r()); boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, r() * 6.28, r() * 4]]); blob(dim, x, z, rad * 4, rad * 4)
-        c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 0.9, h * 0.97, rz2 * 0.9, dim))
+        c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 1.12, h * 0.97, rz2 * 1.12, dim))
       }
       // floating rocks to jump between
       if (r() < 0.3 && !near0(cxm, czm, 20)) {
@@ -225,7 +225,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         list.push([bx, terrainY(bx, bz) + h * 0.38, bz, rad * (vertical ? 1 : 1.35), h, rad * (vertical ? 1.35 : 1), r() * 6.28, r() * 4])
       }
       boulders(dim, list)
-      for (const [bx, by, bz, rx, h, rz] of list) c.boxes.push(ellBox(bx, by, bz, rx * 0.9, h * 0.97, rz * 0.9, dim))
+      for (const [bx, by, bz, rx, h, rz] of list) c.boxes.push(ellBox(bx, by, bz, rx * 1.12, h * 0.97, rz * 1.12, dim))
       blob(dim, wx, wz, vertical ? 8 : CELL * 1.2, vertical ? CELL * 1.2 : 8)
     }
   }

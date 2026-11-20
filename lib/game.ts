@@ -509,7 +509,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const g2 = new THREE.Group(), pillar = new THREE.Mesh(BOULDERS[p.i % 4], world.rock[p.dim]); pillar.scale.set(rad, h, rad); pillar.position.set(p.x, cy, p.z); pillar.castShadow = true; pillar.receiveShadow = true; g2.add(pillar)
     const crystal = new THREE.Mesh(crystalGeo, pylonMats[p.dim].off); crystal.scale.set(0.8, 1.5, 0.8); crystal.position.set(p.x, topY + 1.9, p.z); g2.add(crystal)
     const beam = new THREE.Mesh(beamGeo2, pylonMats[p.dim].beam); beam.position.set(p.x, topY + 36, p.z); g2.add(beam)
-    c2.group.add(g2); c2.boxes.push(ellBox(p.x, cy, p.z, rad * 0.9, h * 0.97, rad * 0.9, p.dim))
+    c2.group.add(g2); c2.boxes.push(ellBox(p.x, cy, p.z, rad * 1.12, h * 0.97, rad * 1.12, p.dim))
     p.ty = ty; p.top = topY; p.group = g2; p.chunk = c2; p.crystal = crystal; setLit(p, sh.lit[p.i])
   }
   const banner = (t: string, secs = 3) => { st.banner = t; st.bannerT = secs }
@@ -704,8 +704,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const dp = st.deadT > 0 ? 1 - st.deadT / st.deadLen : 0, dfall = dp * dp
     if (!dbg.freezeVm) cam.rotation.set(st.pitch - 0.5 * dfall, st.yaw, st.roll + 1.25 * dfall)
     if (st.wallT > 0) cam.position.addScaledVector(st.wn, 0.28)
-    for (const b of nearBoxes()) if (b.ell) { // keep the lens outside every boulder, whose mesh bulges past its collider
-      const e = b.ell, dx = cam.position.x - e.cx, dy = cam.position.y - e.cy, dz = cam.position.z - e.cz, q = Math.hypot(dx / (e.rx + 0.6), dy / (e.hh + 0.6), dz / (e.rz + 0.6))
+    for (let k = 0; k < 4; k++) for (const b of nearBoxes()) if (b.ell) { // keep the lens outside every boulder, whose mesh bulges past its collider
+      const e = b.ell, dx = cam.position.x - e.cx, dy = cam.position.y - e.cy, dz = cam.position.z - e.cz, q = Math.hypot(dx / (e.rx + 0.5), dy / (e.hh + 0.5), dz / (e.rz + 0.5))
       if (q < 1 && q > 0) cam.position.set(e.cx + dx / q, e.cy + dy / q, e.cz + dz / q)
     }
     vmCam.fov = cam.fov; vmCam.aspect = cam.aspect; vmCam.rotation.z = cam.rotation.z; vmCam.updateProjectionMatrix()
