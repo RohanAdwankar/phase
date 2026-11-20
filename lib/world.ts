@@ -6,7 +6,7 @@ import { Enemy, makeFoeMats, walker } from "./actors"
 
 const V = THREE.Vector3
 export const SEG = 40, HW = 16
-export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
+export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number; floor?: boolean }
 export type Seg = { group: THREE.Group; detail: THREE.Group; trees: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }; boxes: Box[]; enemies: Enemy[]; clear: number; z0: number; grass: THREE.Material[]; geos: THREE.BufferGeometry[] }
 
 const TINT = [0xffffff, 0xf2e2a0, 0xc4e4b4, 0xeccaa0, 0xdce2ff]
@@ -45,8 +45,8 @@ const triUV = (geo: THREE.BufferGeometry, scale = 5) => {
 }
 
 const blade = (() => {
-  const rows = [[0, 0.028], [0.26, 0.022], [0.5, 0.013], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
-  const lo = new THREE.Color(0x1d3a0e), mid = new THREE.Color(0x5a8a24), hi = new THREE.Color(0xc4d870)
+  const rows = [[0, 0.02], [0.26, 0.016], [0.5, 0.01], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
+  const lo = new THREE.Color(0x1a2c0e), mid = new THREE.Color(0x4a6f22), hi = new THREE.Color(0xa6b660)
   rows.forEach(([y, w], r) => {
     const c = y < 0.35 ? lo.clone().lerp(mid, y / 0.35) : mid.clone().lerp(hi, (y - 0.35) / 0.4), z = y * y * 0.7
     pos.push(-w, y, z, w, y, z); col.push(c.r, c.g, c.b, c.r, c.g, c.b)
@@ -83,23 +83,24 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
   const pick = (...ids: string[]) => ids[Math.floor(rng() * ids.length)]
 
   const blob = (dim: number, x: number, z: number, sx: number, sz: number, parent: THREE.Object3D = s.group) => {
-    const o = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), w.ao[dim]); o.position.set(x, 0.03, z); o.scale.set(sx, 1, sz); o.renderOrder = 1; s.geos.push(o.geometry); parent.add(o)
+    const o = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), w.ao[dim]); o.position.set(x, parent === s.group ? terrainY(x, z) + 0.06 : 0.03, z); o.scale.set(sx, 1, sz); o.renderOrder = 1; s.geos.push(o.geometry); parent.add(o)
   }
   const pit = (k: number) => k < 0.2
   for (let dim = 0; dim < N; dim++) {
     const k = i < 2 || dim === s.clear ? 0.3 : rng()
     const onFloor = (x: number, z: number) => !pit(k) || !(z < z0 - 10 && z > z0 - 30)
     const pieces = pit(k) ? [[z0 - 10, z0], [z1, z0 - 30]] : [[z1, z0]]
+    if (pit(k)) { const g = new THREE.PlaneGeometry(HW * 2, 20).rotateX(-Math.PI / 2); triUV(g); const gap = mesh(g, w.body[dim], 0, -9, z0 - 20, false); gap.receiveShadow = false }
     for (const [za, zb] of pieces) {
       const len = zb - za, zm = (za + zb) / 2
-      s.boxes.push({ min: new V(-HW, -3, za), max: new V(HW, 0, zb), dim })
-      const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -2.1, zm, false)
+      s.boxes.push({ min: new V(-HW, -4, za), max: new V(HW, 2, zb), dim, floor: true })
+      const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -3.1, zm, false)
       const top = new THREE.PlaneGeometry(HW * 2, len, 48, Math.ceil(len * 1.2)); top.rotateX(-Math.PI / 2)
       for (let n = 0; n < top.attributes.position.count; n++) top.attributes.position.setY(n, terrainY(top.attributes.position.getX(n), zm + top.attributes.position.getZ(n)))
       top.computeVertexNormals()
       const uv = top.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setXY(n, uv.getX(n) * HW * 2 / 4, uv.getY(n) * len / 4)
       mesh(top, w.lane[dim], 0, 0.002, zm, false)
-      const count = Math.round(len * HW * 2 * 32), g = new THREE.InstancedBufferGeometry()
+      const count = Math.round(len * HW * 2 * 40), g = new THREE.InstancedBufferGeometry()
       g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a); g.instanceCount = count; g.boundingSphere = new THREE.Sphere(new V(0, 0.4, zm), Math.hypot(HW, len / 2) + 2)
       const gm = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim]); track(dim, gm); s.grass.push(gm)
       const gmesh = new THREE.Mesh(g, gm); gmesh.userData.dim = dim; add(gmesh, s.detail)
@@ -124,18 +125,19 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     }
 
     // ground cover
-    const spots = (n: number) => [...Array(n)].map(() => new V((rng() - 0.5) * (HW * 2 - 2), 0, z1 + rng() * SEG)).filter(p => onFloor(p.x, p.z))
-    const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, 0, p.z, rng() * 6.28, lo + rng() * (hi - lo))), s.detail, false)
+    const spots = (n: number) => [...Array(n)].map(() => { const x = (rng() - 0.5) * (HW * 2 - 2), z = z1 + rng() * SEG; return new V(x, terrainY(x, z), z) }).filter(p => onFloor(p.x, p.z))
+    const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, p.y, p.z, rng() * 6.28, lo + rng() * (hi - lo))), s.detail, false)
     scatter("fern_02", 12, 0.7, 1.4); scatter("dandelion_01", 30, 0.8, 1.3); scatter("celandine_01", 70, 0.8, 1.5); scatter("periwinkle_plant", 14, 0.8, 1.3)
     scatter("grass_medium_01", 70, 0.8, 1.6); scatter("grass_medium_02", 60, 0.8, 1.6); scatter("moss_01", 20, 0.8, 1.6)
     scatter("shrub_02", 8, 0.9, 1.7); scatter("shrub_03", 5, 0.9, 1.6); scatter("dry_branches_medium_01", 2, 0.6, 1.1); scatter("tree_stump_01", 1, 0.8, 1.3)
-    place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, -0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)), s.detail, false)
+    place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, p.y - 0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)), s.detail, false)
 
     if (k > 0.6) for (let j = 0; j < 3; j++) {
       const id = pick("namaqualand_boulder_03", "namaqualand_boulder_05", "boulder_01"), m = w.models[id], sz = m.box.getSize(new V())
       const x = -HW + 4 + rng() * (HW * 2 - 8), z = z1 + 3 + rng() * (SEG - 6), h = 4 + rng() * 5, sc = h / sz.y, half = Math.max(0.8, Math.min(sz.x, sz.z) * sc * 0.3)
-      place(id, dim, [mat4(x, -0.1, z, rng() * 6.28, sc * 0.75, sc, sc * 0.75)], s.group); blob(dim, x, z, half * 6, half * 6)
-      s.boxes.push({ min: new V(x - half, 0, z - half), max: new V(x + half, h * 0.92, z + half), dim })
+      const ty = terrainY(x, z)
+      place(id, dim, [mat4(x, ty - 0.2, z, rng() * 6.28, sc * 0.75, sc, sc * 0.75)], s.group); blob(dim, x, z, half * 6, half * 6)
+      s.boxes.push({ min: new V(x - half, ty - 0.6, z - half), max: new V(x + half, ty + h * 0.92, z + half), dim })
     }
     if (rng() < 0.6) {
       const x = (rng() - 0.5) * 16, y = 3 + rng() * 4, z = z1 + 3 + rng() * (SEG - 6), id = pick("namaqualand_boulder_03", "namaqualand_boulder_05"), sz = w.models[id].box.getSize(new V())
@@ -145,7 +147,7 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     }
     if (k > 0.35 && k <= 0.6) {
       const pos = new V((rng() - 0.5) * (HW * 2 - 8), 0, z1 + 5 + rng() * (SEG - 10)), wk = walker(w.foe, dim)
-      wk.mesh.position.set(pos.x, 0, pos.z); s.group.add(wk.mesh); blob(dim, 0, 0, 5.5, 5.5, wk.mesh)
+      pos.y = terrainY(pos.x, pos.z); wk.mesh.position.set(pos.x, pos.y, pos.z); s.group.add(wk.mesh); blob(dim, 0, 0, 5.5, 5.5, wk.mesh)
       s.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng(), hitT: 0 })
     }
   }

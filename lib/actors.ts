@@ -1,7 +1,7 @@
 import * as THREE from "three"
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"
 import { PBR } from "./assets"
-import { track, pbrMaterial } from "./materials"
+import { track, pbrMaterial, terrainY } from "./materials"
 
 const V = THREE.Vector3
 const N = 5
@@ -76,8 +76,8 @@ export const walker = (m: FoeMats, dim: number) => {
       // step the foot to its home spot (in body space) once it trails too far behind, in a diagonal gait
       const hw = leg.home.clone().applyMatrix4(g.matrixWorld)
       if (leg.t >= 1 && moving && leg.foot.distanceTo(hw) > 0.9 && Math.sin(phase + (k === 0 || k === 3 ? 0 : Math.PI)) > 0) { leg.from.copy(leg.foot); leg.to.copy(hw).addScaledVector(hw.clone().sub(leg.foot).normalize(), 0.5); leg.t = 0 }
-      if (leg.t < 1) { leg.t = Math.min(1, leg.t + dt * 4); leg.foot.lerpVectors(leg.from, leg.to, leg.t); leg.foot.y = Math.sin(leg.t * Math.PI) * 0.45 }
-      else if (!moving) leg.foot.set(leg.foot.x, 0, leg.foot.z)
+      if (leg.t < 1) { leg.t = Math.min(1, leg.t + dt * 4); leg.foot.lerpVectors(leg.from, leg.to, leg.t); leg.foot.y = terrainY(leg.foot.x, leg.foot.z) + Math.sin(leg.t * Math.PI) * 0.45 }
+      else leg.foot.y = terrainY(leg.foot.x, leg.foot.z)
       // two-bone IK in body space: the knee bends up and away from the body
       local.copy(leg.foot); g.worldToLocal(local)
       const hip = leg.hip.position, d = local.clone().sub(hip), dist = Math.min(L1 + L2 - 0.02, Math.max(0.4, d.length())), dir = d.clone().normalize()

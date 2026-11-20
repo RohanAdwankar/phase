@@ -41,8 +41,8 @@ export const pbrMaterial = (p: PBR, o: { tint?: number; metalness?: number; norm
 })
 
 // gentle rolling relief shared by the ground mesh and the grass shader so blades sit on the surface
-export const terrainY = (x: number, z: number) => 0.22 * (Math.sin(x * 0.23 + Math.sin(z * 0.11) * 1.7) * 0.5 + Math.sin(z * 0.19 + x * 0.07) * 0.5) + 0.08 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
-const TERRAIN_GLSL = `float terrainY(vec2 p){ return 0.22 * (sin(p.x * 0.23 + sin(p.y * 0.11) * 1.7) * 0.5 + sin(p.y * 0.19 + p.x * 0.07) * 0.5) + 0.08 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
+export const terrainY = (x: number, z: number) => 0.7 * (Math.sin(x * 0.09 + Math.sin(z * 0.05) * 2) * 0.5 + Math.sin(z * 0.07 + x * 0.03) * 0.5) + 0.25 * Math.sin(x * 0.31 + z * 0.17) * Math.sin(z * 0.23) + 0.06 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
+const TERRAIN_GLSL = `float terrainY(vec2 p){ return 0.7 * (sin(p.x * 0.09 + sin(p.y * 0.05) * 2.0) * 0.5 + sin(p.y * 0.07 + p.x * 0.03) * 0.5) + 0.25 * sin(p.x * 0.31 + p.y * 0.17) * sin(p.y * 0.23) + 0.06 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
 export const uTime = { value: 0 }
 export const uPlayer = { value: new THREE.Vector3() }
 const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
@@ -57,14 +57,16 @@ export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = 
       vec3 base = vec3(uPatch.x + hh(id * 1.31 + 7.0) * uPatch.z, 0.0, uPatch.y + hh(id * 2.17 + 3.0) * uPatch.w); base.y = terrainY(base.xz);
       float dist = distance(base.xz, uPlayer.xz), rk = hh(id * 7.1 + 2.0), rh = hh(id * 5.3 + 9.0), ang = hh(id * 3.7 + 1.0) * 6.2832;
       float keep = step(rk, clamp(1.0 - (dist - 4.0) / ${undergrowth ? "12.0" : "30.0"}, 0.0, 1.0));
-      float sc = (${undergrowth ? "0.2 + rh * 0.25" : "0.42 + rh * 0.75"}) * keep;
+      float clump = 0.5 + 0.5 * sin(base.x * 0.9 + sin(base.z * 1.3) * 2.0) * sin(base.z * 0.8 + base.x * 0.4);
+      float sc = (${undergrowth ? "0.18 + rh * 0.22" : "0.3 + rh * 0.5"}) * (0.65 + 0.9 * clump) * keep;
       float k = pow(position.y * 1.6, 2.0);
       vec3 p = vec3(position.x, position.y, position.z) * sc;
+      float lean = (hh(id * 17.3) - 0.5) * 1.1; p.x += lean * position.y * position.y * sc; p.z += pow(position.y, 2.0) * 0.5 * sc * step(0.85, hh(id * 19.9));
       p.x += (sin(uTime * 1.7 + base.x * 0.35 + base.z * 0.27) * 0.16 + sin(uTime * 3.1 + base.x * 1.3) * 0.03) * k * sc;
       p.z += cos(uTime * 1.3 + base.z * 0.4) * 0.09 * k * sc;
       float ca = cos(ang), sa = sin(ang); p.xz = vec2(ca * p.x - sa * p.z, sa * p.x + ca * p.z);
       transformed = p + base;
-      vColor.rgb *= 0.6 + 0.55 * hh(id * 11.7);
+      vColor.rgb *= 0.7 + 0.4 * hh(id * 11.7);
       float pt = 0.5 + 0.5 * sin(base.x * 0.17 + sin(base.z * 0.11) * 2.0) * sin(base.z * 0.13);
       vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), clamp(hh(id * 13.1) * 0.35 + pt * 0.45, 0.0, 0.85));`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = vec3(0.0, 1.0, 0.0);")

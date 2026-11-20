@@ -5,7 +5,7 @@ import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
 import { Enemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
-import { N } from "./materials"
+import { N, terrainY } from "./materials"
 import { buildSegment, disposeSegment, loadWorld, Box, Seg, HW, SEG } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -81,14 +81,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const segAt = () => Math.max(0, Math.floor(-st.pos.z / SEG))
   const nearSegs = () => [segAt() - 1, segAt(), segAt() + 1].flatMap(j => segs.get(j) ?? [])
   const nearBoxes = () => nearSegs().flatMap(s => s.boxes).filter(b => b.dim === nd())
+  const top = (b: Box) => (b.floor ? terrainY(st.pos.x, st.pos.z) : b.max.y)
   const over = (b: Box, h: number) => { const p = st.pos
-    return p.x + 0.3 > b.min.x && p.x - 0.3 < b.max.x && p.y + h > b.min.y && p.y < b.max.y && p.z + 0.3 > b.min.z && p.z - 0.3 < b.max.z }
+    return p.x + 0.3 > b.min.x && p.x - 0.3 < b.max.x && p.y + h > b.min.y && p.y < top(b) && p.z + 0.3 > b.min.z && p.z - 0.3 < b.max.z }
   const move = (axis: Axis, h: number, bx: Box[]) => {
     const v = st.vel[axis]; let n = 0
     st.pos[axis] += v * DT
-    for (const b of bx) if (over(b, h)) {
+    for (const b of bx) if (over(b, h) && (axis === "y" || !b.floor)) {
       const e = axis === "y" ? h : 0.3
-      st.pos[axis] = v > 0 ? b.min[axis] - e : b.max[axis] + (axis === "y" ? 0 : 0.3)
+      st.pos[axis] = v > 0 ? b.min[axis] - e : (axis === "y" ? top(b) : b.max[axis] + 0.3)
       n = v > 0 ? -1 : 1
     }
     if (n) st.vel[axis] = 0
@@ -96,7 +97,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const respawn = () => {
     const s = segs.get(segAt())!
-    st.pos.set(0, 0.01, s.z0 - 3); st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
+    st.pos.set(0, terrainY(0, s.z0 - 3) + 0.05, s.z0 - 3); st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
     d = target = s.clear
   }
 
@@ -108,13 +109,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.quaternion.setFromUnitVectors(new V(0, 1, 0), b.clone().sub(a).normalize())
     scene.add(mesh); beams.push({ mesh, life })
   }
-  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.15, 0, e.pos.z - 1.15), new V(e.pos.x + 1.15, 2.9, e.pos.z + 1.15)] as const
+  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.15, e.pos.y, e.pos.z - 1.15), new V(e.pos.x + 1.15, e.pos.y + 2.9, e.pos.z + 1.15)] as const
 
   const shoot = () => {
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
-    for (const b of nearBoxes()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
+    for (const b of nearBoxes()) if (!b.floor) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
+    if (dir.y < -1e-3) tMin = Math.min(tMin, (terrainY(o.x + dir.x * 8, o.z + dir.z * 8) - o.y) / dir.y)
     for (const s of nearSegs()) for (const e of s.enemies) if (e.dim === nd()) {
       const t = rayBox(o, dir, ...hitBox(e))
       if (t < tMin) { tMin = t; hit = e }
@@ -123,7 +125,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (hit) {
       st.hit = 0.12; hit.hitT = 0.14; fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if (--hit.hp <= 0) {
-        const c = hit.pos.clone().setY(1.6)
+        const c = hit.pos.clone().setY(hit.pos.y + 1.6)
         fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; hit.mesh.removeFromParent(); st.kills++
         for (const s of nearSegs()) s.enemies = s.enemies.filter(e => e !== hit)
       }
@@ -141,7 +143,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (wish.lengthSq() > 0) wish.normalize()
     const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
-    for (const b of bx) if (over(b, 1.8)) p.y = b.max.y
+    for (const b of bx) if (over(b, 1.8)) p.y = top(b)
 
     const speed = Math.hypot(v.x, v.z)
     if (!st.slide && st.ground && crouch && speed > 4) { st.slide = true; v.x *= Math.max(1, SPEED * 1.4 / speed); v.z *= Math.max(1, SPEED * 1.4 / speed) }
@@ -187,12 +189,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (st.fire && st.fireT <= 0) { shoot(); st.fireT = 0.09 }
     for (const s of nearSegs()) for (const e of s.enemies) {
       const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
-      e.mesh.rotation.y = Math.atan2(-dx, -dz)
+      e.mesh.rotation.y = Math.atan2(-dx, -dz); e.pos.y = terrainY(e.pos.x, e.pos.z)
       const moving = dist < 70 && dist > 9
       e.update(DT, moving, time * 5)
       if (e.hitT > 0) { e.hitT -= DT; e.mesh.position.x = e.pos.x + Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (moving) {
-        e.pos.x = Math.max(-HW + 2, Math.min(HW - 2, e.pos.x + dx / dist * 2.5 * DT)); e.pos.z += dz / dist * 2.5 * DT; e.mesh.position.set(e.pos.x, 0, e.pos.z)
+        e.pos.x = Math.max(-HW + 2, Math.min(HW - 2, e.pos.x + dx / dist * 2.5 * DT)); e.pos.z += dz / dist * 2.5 * DT; e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
       }
       if (e.dim === nd() && dist < 45 && (e.fireT -= DT) <= 0) {
         e.fireT = 0.9 + Math.random() * 0.7
@@ -219,7 +221,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     cam.fov += (80 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) vm.root.position.set(0.15 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.55 + st.kick * 0.035)
     if (!dbg.freezeVm) vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
-    vm.flash.material.opacity = st.flash > 0 ? 1 : 0; vm.light.intensity = st.flash > 0 ? 6 : 0
+    vm.flash.material.opacity = st.flash > 0 ? 0.65 : 0; vm.light.intensity = st.flash > 0 ? 1.2 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
     uPlayer.value.copy(p)
     for (const [i, s] of segs) {

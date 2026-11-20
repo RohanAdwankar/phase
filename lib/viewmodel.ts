@@ -52,8 +52,8 @@ export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.Buff
   const arm = (pts: THREE.Vector3[], wristR: number, elbowR: number) => {
     const c = new THREE.CatmullRomCurve3(pts)
     tube(c, wristR, elbowR, suit)
-    ;[0.1, 0.24, 0.38, 0.52, 0.66, 0.8, 0.92].forEach((t, k) => {
-      const r = lerp(wristR, elbowR, t) + 0.007 + (k === 0 || k === 6 ? 0.003 : 0), l = k % 3 === 0 ? 0.045 : 0.032, mat = k % 2 ? grey : gold, q = align(c.getTangent(t))
+    ;[0.12, 0.34, 0.56, 0.78].forEach((t, k) => {
+      const r = lerp(wristR, elbowR, t) + 0.0035, l = k === 0 ? 0.03 : 0.022, mat = k % 2 ? grey : gold, q = align(c.getTangent(t))
       add(new THREE.CylinderGeometry(r, r + 0.006, l, 28), mat, c.getPoint(t), q)
       for (const s of [-1, 1]) add(new THREE.TorusGeometry(r + 0.002, 0.0055, 8, 28), mat, c.getPoint(t).addScaledVector(c.getTangent(t), s * l * 0.5), align(c.getTangent(t), new V(0, 0, 1)))
       add(new THREE.TorusGeometry(r + 0.0035, 0.0028, 6, 28), glow, c.getPoint(t + 0.045).clone(), align(c.getTangent(t), new V(0, 0, 1)))
@@ -84,12 +84,12 @@ export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.Buff
   for (const y of rightY) add(rbox(0.014, 0.017, 0.022, 0.004), grey, new V(gx + 0.043, y, gz + 0.075))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
-  arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.021, 0.032)
+  arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.017, 0.026)
 
   const muzzle = new THREE.Object3D(); muzzle.position.set(0, size.y * 0.25, -len * 0.75); root.add(muzzle)
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
-  flash.scale.setScalar(0.4); muzzle.add(flash)
-  const light = new THREE.PointLight(0xff9a3a, 0, 8); muzzle.add(light)
+  flash.scale.setScalar(0.2); muzzle.add(flash)
+  const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
   root.scale.setScalar(1.7); root.position.set(0.14, -0.13, -0.32)
   return { root, muzzle, flash, light, eject: new V(0.03, size.y * 0.3, -len * 0.1) }
 }
