@@ -1,6 +1,7 @@
 import * as THREE from "three"
 import { PBR, Model, loadPBR, loadModel } from "./assets"
-import { N, track, untrack, splatMaterial, grassMaterial, terrainY } from "./materials"
+import { N, track, untrack, grassMaterial, terrainY } from "./materials"
+import { PALETTE, gradient, groundTexture, flatten } from "./toon"
 import { Enemy, makeFoeMats, walker } from "./actors"
 
 const V = THREE.Vector3
@@ -24,12 +25,16 @@ export const loadWorld = async () => {
   const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await loadModel(id)] as const))
   const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await loadModel("pine_sapling_small_lo")
   const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
-  const lane = per(i => splatMaterial(biome[i][0], biome[i][1], { scaleB: 0.8, tint: TINT[i], c: biome[(i + 2) % 5][0] }))
+  const lane = per(i => { const t = groundTexture(i); t.repeat.set(0.13, 0.13); return new THREE.MeshToonMaterial({ map: t, gradientMap: gradient, transparent: true }) })
   const cache = new Map<string, THREE.Material>()
   const matFor = (dim: number, id: string, k: number, src: THREE.Material) => {
     const key = `${dim}:${id}:${k}`
     // photogrammetry scans are open shells; draw both sides so the inside of a torn rim reads as rock instead of a see-through hull
-    if (!cache.has(key)) { const m = src.clone(); m.side = THREE.DoubleSide; cache.set(key, track(dim, m)) }
+    if (!cache.has(key)) {
+      const P = PALETTE[dim], keep = /dandelion|celandine|periwinkle/.test(id)
+      const m = keep ? Object.assign(src.clone(), { side: THREE.DoubleSide }) : /boulder|cliff|mountainside/.test(id) ? flatten(src, P.rock, P.moss) : /fir|pine/.test(id) ? flatten(src, P.tree) : /branches|stump/.test(id) ? flatten(src, 0x6a4a35) : flatten(src, P.plant)
+      cache.set(key, track(dim, m))
+    }
     return cache.get(key)!
   }
   const aoTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(0,0,0,0.6)"); r.addColorStop(0.6, "rgba(0,0,0,0.25)"); r.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c) })()
@@ -76,7 +81,7 @@ const triUV = (geo: THREE.BufferGeometry, scale = 5) => {
 const blade = (() => {
   // an arched blade: wide at the base, curving over and drooping toward a fine tip
   const rows = [[0, 0.036], [0.12, 0.034], [0.28, 0.029], [0.46, 0.021], [0.64, 0.012], [0.8, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
-  const lo = new THREE.Color(0x26441a), mid = new THREE.Color(0x58982a), hi = new THREE.Color(0xaed45c)
+  const lo = new THREE.Color(0xc4c4c4), mid = new THREE.Color(0xe2e2e2), hi = new THREE.Color(0xffffff)
   rows.forEach(([y, wd], r) => {
     const c = y < 0.4 ? lo.clone().lerp(mid, y / 0.4) : mid.clone().lerp(hi, (y - 0.4) / 0.4), z = y * y * 0.9 + y * y * y * 1.4
     pos.push(-wd, y, z, wd, y, z); col.push(c.r, c.g, c.b, c.r, c.g, c.b)
@@ -198,7 +203,7 @@ export const buildDetail = (w: World, c: Chunk) => {
     for (const [density, under] of [[18, false], [22, true]] as const) {
       const g = new THREE.InstancedBufferGeometry(); g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a)
       g.instanceCount = Math.round(CH * CH * density); g.boundingSphere = new THREE.Sphere(new V(x0 + CH / 2, terrainY(x0 + CH / 2, z0 + CH / 2) + 0.4, z0 + CH / 2), CH * 0.75)
-      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), TINT[dim], under); track(dim, gm); c.grass.push(gm)
+      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under); track(dim, gm); c.grass.push(gm)
       d.add(new THREE.Mesh(g, gm))
     }
     const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z), z) }).filter(q => ok(q.x, q.z))

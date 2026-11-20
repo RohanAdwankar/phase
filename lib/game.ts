@@ -50,7 +50,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   scene.fog = new THREE.FogExp2(0xbdd0e4, 0.0034)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 1000)
   cam.rotation.order = "YXZ"; scene.add(cam)
-  scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x6a5a38, 1.15))
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x7a6a8a, 1.9))
   const sun = new THREE.DirectionalLight(0xfff0d2, 3.4)
   sun.castShadow = true; sun.shadow.mapSize.set(1536, 1536); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04
   Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 200 })

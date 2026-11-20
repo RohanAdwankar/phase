@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { PBR } from "./assets"
+import { gradient as toonGradient } from "./toon"
 
 export const N = 5
 // every material that belongs to one dimension, so the dimension phasing can fade it
@@ -49,7 +50,7 @@ const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
 
 // Grass blades generated entirely in the vertex shader from the instance id, so a patch costs no CPU or memory per blade.
 export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = false) => {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8, color: tint, transparent: true })
+  const m = new THREE.MeshToonMaterial({ vertexColors: true, side: THREE.DoubleSide, color: tint, gradientMap: toonGradient, transparent: true })
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { uTime, uPlayer, uPatch: { value: patch } })
     sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${TERRAIN_GLSL}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
@@ -69,9 +70,7 @@ export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = 
       p.z += cos(uTime * 1.3 + base.z * 0.4) * 0.09 * k * sc;
       float ca = cos(ang), sa = sin(ang); p.xz = vec2(ca * p.x - sa * p.z, sa * p.x + ca * p.z);
       transformed = p + base;
-      vColor.rgb *= 0.78 + 0.3 * hh(id * 11.7) + 0.25 * (tuft - 0.5);
-      float pt = 0.5 + 0.5 * sin(base.x * 0.17 + sin(base.z * 0.11) * 2.0) * sin(base.z * 0.13);
-      vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), clamp(step(0.8, hh(cid * 13.1)) * 0.6 + pt * 0.4, 0.0, 0.85));`)
+      vColor.rgb *= 0.9 + 0.2 * hh(id * 11.7) + 0.25 * (tuft - 0.5);`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = vec3(0.0, 1.0, 0.0);")
   }
   return m
