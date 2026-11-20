@@ -9,7 +9,11 @@ const V = THREE.Vector3
 // The world is an endless grid of chunks. Every dimension has its own layout drawn from a hash of its coordinates, so a
 // wall in one dimension may be an opening in the next.
 export const CH = 40, CELL = 20
-export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number }
+// ell marks a boulder: a solid ellipsoid (centre, horizontal radii, centre height, half height) instead of a plain axis-aligned box
+export type Ell = { cx: number; cz: number; rx: number; rz: number; cy: number; hh: number; bot: number }
+export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number; ell?: Ell }
+export const ellBox = (cx: number, cy: number, cz: number, rx: number, hh: number, rz: number, dim: number): Box =>
+  ({ min: new THREE.Vector3(cx - rx, cy - hh, cz - rz), max: new THREE.Vector3(cx + rx, cy + hh, cz + rz), dim, ell: { cx, cz, rx, rz, cy, hh, bot: cy - hh * 0.62 } })
 export type Pit = { x0: number; x1: number; z0: number; z1: number; dim: number }
 export type Chunk = {
   cx: number; cz: number; group: THREE.Group; detail: THREE.Group | null; lods: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }
@@ -160,8 +164,8 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       if (r() < 0.38 && !near0(cxm, czm, 26)) for (let j = 0; j < 1 + Math.floor(r() * 2); j++) {
         const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z), hx = rad * 0.78
         if (pits.some(q => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3)) continue
-        boulders(dim, [[x, ty + h * 0.45, z, rad, h, rad * (0.8 + 0.4 * r()), r() * 6.28, r() * 4]]); blob(dim, x, z, rad * 4, rad * 4)
-        c.boxes.push({ min: new V(x - hx, ty - 0.6, z - hx), max: new V(x + hx, ty + h * 1.3, z + hx), dim })
+        const rz2 = rad * (0.8 + 0.4 * r()); boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, r() * 6.28, r() * 4]]); blob(dim, x, z, rad * 4, rad * 4)
+        c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 0.9, h * 0.97, rz2 * 0.9, dim))
       }
       // floating rocks to jump between
       if (r() < 0.3 && !near0(cxm, czm, 20)) {
@@ -171,7 +175,9 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       }
       // a patrol of walkers
       if (r() < 0.55 && !near0(cxm, czm, 30)) for (let m = 0; m < 1 + (r() < 0.4 ? 1 : 0); m++) {
-        const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12), wk = walker(w.foe, dim)
+        const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12)
+        if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < 4.5)) continue
+        const wk = walker(w.foe, dim)
         pos.y = terrainY(pos.x, pos.z); wk.mesh.position.copy(pos); c.group.add(wk.mesh); blob(dim, pos.x, pos.z, 5.5, 5.5)
         c.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + r(), hitT: 0 })
       }
@@ -189,8 +195,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         list.push([bx, terrainY(bx, bz) + h * 0.38, bz, rad * (vertical ? 1 : 1.35), h, rad * (vertical ? 1.35 : 1), r() * 6.28, r() * 4])
       }
       boulders(dim, list)
-      const t = 2.5, reach = CELL * 0.62 + 1.5
-      c.boxes.push({ min: new V(wx - (vertical ? t : reach), -30, wz - (vertical ? reach : t)), max: new V(wx + (vertical ? t : reach), ty + 9.5, wz + (vertical ? reach : t)), dim })
+      for (const [bx, by, bz, rx, h, rz] of list) c.boxes.push(ellBox(bx, by, bz, rx * 0.9, h * 0.97, rz * 0.9, dim))
       blob(dim, wx, wz, vertical ? 8 : CELL * 1.2, vertical ? CELL * 1.2 : 8)
     }
   }

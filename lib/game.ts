@@ -29,6 +29,16 @@ const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE
   return t0
 }
 
+// ray against a collider: boulders are real ellipsoids (so arrows never stick to empty corners), everything else an axis-aligned box
+const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
+  if (!b.ell) return rayBox(o, d, b.min, b.max)
+  const e = b.ell, ox = (o.x - e.cx) / e.rx, oy = (o.y - e.cy) / e.hh, oz = (o.z - e.cz) / e.rz, dx = d.x / e.rx, dy = d.y / e.hh, dz = d.z / e.rz
+  const A = dx * dx + dy * dy + dz * dz, B = 2 * (ox * dx + oy * dy + oz * dz), C = ox * ox + oy * oy + oz * oz - 1, disc = B * B - 4 * A * C
+  if (disc < 0) return Infinity
+  const t = (-B - Math.sqrt(disc)) / (2 * A)
+  return t > 0 && o.y + d.y * t > e.bot ? t : C < 0 ? 0 : Infinity
+}
+
 export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal) {
   if (signal.aborted) return () => {}
   const ctx = hud.getContext("2d")!
@@ -88,15 +98,38 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (c) for (const q of c.pits) if (q.dim === nd() && x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1) return -Infinity
     return terrainY(x, z)
   }
+  // boulder dome height under (x, z), inflated by the player radius; -Infinity outside it
+  const R = 0.3
+  const domeTop = (e: NonNullable<Box["ell"]>, x: number, z: number) => {
+    const a = (x - e.cx) / (e.rx + R), c = (z - e.cz) / (e.rz + R), q = a * a + c * c
+    return q >= 1 ? -Infinity : e.cy + e.hh * Math.sqrt(1 - q)
+  }
   const over = (b: Box, h: number) => { const p = st.pos
-    return p.x + 0.3 > b.min.x && p.x - 0.3 < b.max.x && p.y + h > b.min.y && p.y < b.max.y && p.z + 0.3 > b.min.z && p.z - 0.3 < b.max.z }
+    if (b.ell) { const t = domeTop(b.ell, p.x, p.z); return t > -Infinity && p.y + h > b.ell.bot && p.y < t }
+    return p.x + R > b.min.x && p.x - R < b.max.x && p.y + h > b.min.y && p.y < b.max.y && p.z + R > b.min.z && p.z - R < b.max.z }
+  const hitN = new V()
   const move = (axis: Axis, h: number, bx: Box[]) => {
     const v = st.vel[axis]; let n = 0
+    const before = st.pos[axis]
     st.pos[axis] += v * DT
     for (const b of bx) if (over(b, h)) {
-      const e = axis === "y" ? h : 0.3
-      st.pos[axis] = v > 0 ? b.min[axis] - e : b.max[axis] + (axis === "y" ? 0 : 0.3)
+      if (b.ell) {
+        const e = b.ell, top = domeTop(e, st.pos.x, st.pos.z)
+        if (axis === "y") {
+          if (v <= 0) { st.pos.y = top; n = 1 } else { st.pos.y = before; n = -1 }
+        } else if (st.pos.y >= top - 0.5) st.pos.y = top
+        else {
+          // push back out to the inflated ellipse along this axis, on the side the player came from
+          const c = axis === "x" ? e.cx : e.cz, other = axis === "x" ? (st.pos.z - e.cz) / (e.rz + R) : (st.pos.x - e.cx) / (e.rx + R), rad = axis === "x" ? e.rx + R : e.rz + R
+          st.pos[axis] = c + Math.sign(before - c || 1) * rad * Math.sqrt(Math.max(0, 1 - other * other)) * 1.001
+          n = Math.sign(before - c || 1); hitN.set((st.pos.x - e.cx) / (e.rx * e.rx), 0, (st.pos.z - e.cz) / (e.rz * e.rz)).normalize()
+        }
+        continue
+      }
+      const e = axis === "y" ? h : R
+      st.pos[axis] = v > 0 ? b.min[axis] - e : b.max[axis] + (axis === "y" ? 0 : R)
       n = v > 0 ? -1 : 1
+      if (axis !== "y") hitN.set(axis === "x" ? n : 0, 0, axis === "z" ? n : 0)
     }
     if (axis === "y" && v <= 0) { const gh = groundH(st.pos.x, st.pos.z); if (st.pos.y < gh) { st.pos.y = gh; n = 1 } }
     if (n) st.vel[axis] = 0
@@ -104,8 +137,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   // when a phase leaves the player inside geometry, shove out through the nearest face
   const pushOut = (b: Box, h: number) => {
-    const p = st.pos, c = [b.max.x - (p.x - 0.3), p.x + 0.3 - b.min.x, b.max.z - (p.z - 0.3), p.z + 0.3 - b.min.z, b.max.y - p.y, p.y + h - b.min.y], k = c.indexOf(Math.min(...c))
-    if (k === 0) p.x = b.max.x + 0.3; else if (k === 1) p.x = b.min.x - 0.3; else if (k === 2) p.z = b.max.z + 0.3; else if (k === 3) p.z = b.min.z - 0.3; else if (k === 4) p.y = b.max.y; else p.y = b.min.y - h
+    const p = st.pos
+    if (b.ell) { const dx = p.x - b.ell.cx, dz = p.z - b.ell.cz, l = Math.hypot(dx / (b.ell.rx + R), dz / (b.ell.rz + R)) || 1; p.x = b.ell.cx + (dx / l) * 1.02; p.z = b.ell.cz + (dz / l) * 1.02; return }
+    const c = [b.max.x - (p.x - R), p.x + R - b.min.x, b.max.z - (p.z - R), p.z + R - b.min.z, b.max.y - p.y, p.y + h - b.min.y], k = c.indexOf(Math.min(...c))
+    if (k === 0) p.x = b.max.x + R; else if (k === 1) p.x = b.min.x - R; else if (k === 2) p.z = b.max.z + R; else if (k === 3) p.z = b.min.z - R; else if (k === 4) p.y = b.max.y; else p.y = b.min.y - h
   }
   // phasing can leave the player inside rock. Launch them straight up out of it (or sideways out of a very tall wall) so a dimension change never traps them.
   const unstick = (bx: Box[], h: number) => {
@@ -113,8 +148,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let n = 0; n < 6; n++) {
       const b = bx.find(q => over(q, h)); if (!b) break
       hit = true
-      const up = b.max.y - st.pos.y + 0.4
-      if (up <= 8) { st.pos.y = b.max.y + 0.05; st.vel.y = Math.max(st.vel.y, 11 + up * 0.8) } else { pushOut(b, h); st.vel.y = Math.max(st.vel.y, 6) }
+      const topY = b.ell ? domeTop(b.ell, st.pos.x, st.pos.z) : b.max.y, up = topY - st.pos.y + 0.4
+      if (up <= 8) { st.pos.y = topY + 0.05; st.vel.y = Math.max(st.vel.y, 11 + up * 0.8) } else { pushOut(b, h); st.vel.y = Math.max(st.vel.y, 6) }
     }
     if (hit) { st.ground = false; st.jumps = 0; fx.spark(new V(st.pos.x, st.pos.y + 0.3, st.pos.z), 36, new V(0, 1, 0), DUST); fx.smoke(new V(st.pos.x, st.pos.y, st.pos.z), 4, DUST, 1) }
   }
@@ -150,7 +185,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
-    for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
+    for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) tMin = Math.min(tMin, rayCollider(o, dir, b))
     for (let t = 1; t < tMin; t += 1.5) if (o.y + dir.y * t < terrainY(o.x + dir.x * t, o.z + dir.z * t)) { tMin = t; break }
     for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd()) {
       const t = rayBox(o, dir, ...hitBox(e))
@@ -214,7 +249,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     a.life -= dt
     const p = a.mesh.position, dir = a.vel.clone().normalize(), len = a.vel.length() * dt, ch = nearChunks(3)
     let tMin = len, hit: Enemy | null = null
-    for (const c of ch) for (const b of c.boxes) if (b.dim === a.dim) tMin = Math.min(tMin, rayBox(p, dir, b.min, b.max))
+    for (const c of ch) for (const b of c.boxes) if (b.dim === a.dim) tMin = Math.min(tMin, rayCollider(p, dir, b))
     for (const c of ch) for (const e of c.enemies) if (e.dim === a.dim) { const t = rayBox(p, dir, ...hitBox(e)); if (t < tMin) { tMin = t; hit = e } }
     const end = p.clone().addScaledVector(dir, Math.min(tMin, len))
     const gy = terrainY(end.x, end.z), onTerrain = end.y < gy
@@ -232,7 +267,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // a walker can only shoot when no wall of its dimension lies between it and the player
   const clearShot = (e: Enemy) => {
     const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
-    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayBox(from, dir, b.min, b.max) < len) return false
+    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayCollider(from, dir, b) < len) return false
     return true
   }
   const enemyTick = (dt: number) => {
@@ -259,6 +294,23 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         beam(from, to, 0.03, 0.12)
         if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
+    }
+  }
+  // walkers are solid: they push each other apart so they never overlap, and shove the player out of their body
+  const separate = () => {
+    const live: Enemy[] = []
+    for (const c of nearChunks(2)) for (const e of c.enemies) if (Math.abs(e.dim - d) < 1.1) live.push(e)
+    for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+      const a = live[i], b = live[j]; if (a.dim !== b.dim) continue
+      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, dist = Math.hypot(dx, dz), min = 3.6
+      if (dist >= min) continue
+      const nx = dist > 0.001 ? dx / dist : 1, nz = dist > 0.001 ? dz / dist : 0, push = (min - dist) * 0.5
+      a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push
+    }
+    for (const e of live) { e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
+    for (const e of live) if (e.dim === nd()) {
+      const dx = st.pos.x - e.pos.x, dz = st.pos.z - e.pos.z, dist = Math.hypot(dx, dz), min = 2.1
+      if (dist < min && st.pos.y < e.pos.y + 2.8 && st.pos.y + 1.8 > e.pos.y) { const k = dist > 0.001 ? 1 / dist : 0; st.pos.x = e.pos.x + (dist > 0.001 ? dx * k : 1) * min; st.pos.z = e.pos.z + (dist > 0.001 ? dz * k : 0) * min }
     }
   }
   // stream the endless world in and out around the player, building at most a couple of pieces per frame
@@ -310,21 +362,24 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       else if (st.jumps < 2) { v.y = 7.5; st.jumps = 2 }
     }
 
-    if (st.wallT > 0 && (!on("KeyW") || st.contact <= 0)) { st.wallT = 0; st.wallCD = 0.3 }
+    if (st.wallT > 0 && (!on("KeyW") || st.contact <= 0)) { st.wallT = 0; st.wallCD = 0.25 }
     if (st.wallT > 0 && (st.wallT -= DT) <= 0) st.wallCD = 0.6
     if (st.wallT > 0) {
+      // climb the rock: run up the face while forward is held, drifting along it, until contact is lost over the top
       const tan = new V(-st.wn.z, 0, st.wn.x); if (tan.dot(fwd) < 0) tan.negate()
-      v.copy(tan).multiplyScalar(Math.max(12, Math.abs(v.dot(tan)))).addScaledVector(st.wn, -3)
+      v.copy(tan).multiplyScalar(3.5).addScaledVector(st.wn, -4); v.y = 11
     } else v.y -= G * DT * (glide ? 0.08 : 1)
     st.wallCD -= DT
 
     if (st.surge > 0) { v.x = st.sdir.x * st.surgeSpd; v.z = st.sdir.z * st.surgeSpd }
     const h = st.slide ? 1 : 1.8
+    hitN.set(0, 0, 0)
     const nx = move("x", h, bx), nz = move("z", h, bx), ny = move("y", h, bx)
     st.ground = ny > 0
-    if (st.ground) { st.jumps = 0; st.wallT = 0 }
-    st.contact = nx || nz ? 0.15 : st.contact - DT
-    if (!st.ground && st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW")) { st.wn.set(nx, 0, nz); st.wallT = 1.4 }
+    if (st.ground && st.wallT <= 0) st.jumps = 0
+    st.contact = nx || nz ? 0.2 : st.contact - DT
+    // running into a rock face at speed latches onto it, from the ground or the air
+    if (st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW") && Math.hypot(v.x, v.z) + Math.abs(v.y) > 0 && hitN.lengthSq() > 0) { st.wn.copy(hitN); st.wallT = 1.8; st.ground = false }
 
     st.fireT -= DT
     if (weapon === "sword") {
@@ -457,7 +512,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
     if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
     while (acc > DT) { acc -= DT; step() }
-    enemyTick(Math.min(dt, 0.05)); stream()
+    enemyTick(Math.min(dt, 0.05)); separate(); stream()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {

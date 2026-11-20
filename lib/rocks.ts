@@ -6,7 +6,7 @@ const build = (seed: number, slab: boolean) => {
   const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
-    const k = 1 + (fbm(x * 1.3 + seed, y * 1.3, z * 1.3 + seed * 0.7, 3) - 0.5) * 0.75
+    const k = 1 + (fbm(x * 1.3 + seed, y * 1.3, z * 1.3 + seed * 0.7, 3) - 0.5) * 0.3
     let yy = y * k
     if (yy < -0.55) yy = -0.55 + (yy + 0.55) * 0.15
     if (slab && yy > 0.6) yy = 0.6
