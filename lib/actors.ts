@@ -94,7 +94,7 @@ export const walker = (m: FoeMats, dim: number) => {
 
 export const makeViewmodel = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferGeometry; mat: THREE.Material; box: THREE.Box3 }) => {
   const root = new THREE.Group()
-  const gold = new THREE.MeshStandardMaterial({ color: 0xc2ab72, metalness: 0.95, roughness: 0.28 })
+  const gold = new THREE.MeshStandardMaterial({ color: 0xb8a272, metalness: 0.8, roughness: 0.42 })
   const grey = new THREE.MeshStandardMaterial({ color: 0x8d9296, metalness: 0.9, roughness: 0.32 })
   const suit = new THREE.MeshStandardMaterial({ color: 0x1b1d20, metalness: 0.2, roughness: 0.7 })
   const orange = new THREE.MeshStandardMaterial({ color: 0xd9531a, metalness: 0.6, roughness: 0.35 })

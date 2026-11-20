@@ -58,7 +58,7 @@ const blade = (() => {
 })()
 
 export const hillY = (x: number, z: number) => {
-  const a = Math.abs(x) - HW, ramp = Math.min(1, Math.max(0, a / 14)), d = Math.max(0, a - 14)
+  const a = Math.abs(x) - HW - 6, ramp = Math.min(1, Math.max(0, a / 45)), d = Math.max(0, a - 45)
   return (4 + fbm(x * 0.03, z * 0.03, 2) * 22 + d * 0.5 + fbm(x * 0.12, z * 0.12, 5) * 3) * ramp * ramp * (3 - 2 * ramp)
 }
 
