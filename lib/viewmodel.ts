@@ -43,7 +43,7 @@ export const makeViewmodel = (armor: PBR) => {
 
   // segmented armoured sleeve: bevelled collars of alternating gold and grey separated by flexible dark undersuit, with a glowing seam
   // forearm: wrist narrows into a cuff, swells over the muscle and eases into the elbow; the cuff hides the join with the hand
-  const cuffMat = new THREE.MeshStandardMaterial({ color: 0x2c2e34, roughness: 0.55, metalness: 0.2 })
+  const cuffMat = new THREE.MeshStandardMaterial({ color: 0x2c2e34, roughness: 0.55, metalness: 0.2, flatShading: true })
   const arm = (pts: THREE.Vector3[], wristR: number, elbowR: number) => {
     const c = new THREE.CatmullRomCurve3(pts), n = 20, rad = (t: number) => lerp(wristR, elbowR, t) * (1 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.25)))
     for (let i = 0; i < n; i++) {
@@ -52,8 +52,9 @@ export const makeViewmodel = (armor: PBR) => {
       add(new THREE.SphereGeometry(r0, 16, 12), suit, a)
     }
     const q = align(c.getTangent(0.06)), p = c.getPoint(0.06)
-    add(new THREE.CylinderGeometry(wristR * 1.34, wristR * 1.46, 0.05, 22), cuffMat, p, q)
-    add(new THREE.TorusGeometry(wristR * 1.42, 0.0045, 8, 24), cuffMat, c.getPoint(0.06).addScaledVector(c.getTangent(0.06), 0.027), align(c.getTangent(0.06), new V(0, 0, 1)))
+    // angular cuff: a six-sided collar that flares toward the elbow, with a smaller six-sided step at the hand end
+    add(new THREE.CylinderGeometry(wristR * 1.4, wristR * 1.7, 0.058, 6), cuffMat, p, q)
+    add(new THREE.CylinderGeometry(wristR * 1.18, wristR * 1.42, 0.022, 6), cuffMat, c.getPoint(0.06).addScaledVector(c.getTangent(0.06), -0.036), q)
   }
 
   // fingers wrap around the grip along an ellipse in the horizontal plane
@@ -115,7 +116,7 @@ export const makeViewmodel = (armor: PBR) => {
   {
     const rad = (t: number) => lerp(0.019, 0.031, t) * (1 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.25)))
     for (let i = 0; i < 18; i++) { const a = forearm.getPoint(i / 18), b = forearm.getPoint((i + 1) / 18), r0 = rad(i / 18), r1 = rad((i + 1) / 18); const cy = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, a.distanceTo(b) * 1.04, 16), suit); cy.position.copy(a).lerp(b, 0.5); cy.quaternion.copy(align(b.clone().sub(a))); ft.add(cy); const bl = new THREE.Mesh(new THREE.SphereGeometry(r0, 14, 10), suit); bl.position.copy(a); ft.add(bl) }
-    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.028, 0.05, 20), cuffMat); cuff.position.copy(forearm.getPoint(0.06)); cuff.quaternion.copy(align(forearm.getTangent(0.06))); ft.add(cuff)
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.027, 0.034, 0.058, 6), cuffMat); cuff.position.copy(forearm.getPoint(0.06)); cuff.quaternion.copy(align(forearm.getTangent(0.06))); ft.add(cuff)
   }
 
   let drawAmt = 0
