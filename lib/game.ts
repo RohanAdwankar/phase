@@ -180,6 +180,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     p.copy(end); a.vel.y -= 13 * dt; a.mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), a.vel.clone().normalize())
   }
 
+  // each hit remembers where it came from in the world, so the flash can point at the shooter as the player turns
+  const hurts: { x: number; z: number; t: number }[] = []
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of c.enemies) {
@@ -199,7 +201,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         e.fireT = 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12)
-        if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        if (Math.random() < 0.55) { st.hp -= 9; st.hurt = 0.35; hurts.push({ x: e.pos.x - p.x, z: e.pos.z - p.z, t: 1 }); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
@@ -312,7 +314,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = 0; i < N; i++) {
       const a = Math.max(0, 1 - Math.abs(d - i) * 1.15), solid = i === nd()
       for (const m of registry[i]) {
-        m.visible = a > 0; m.transparent = !solid; m.depthWrite = solid
+        m.visible = a > 0; m.transparent = !solid || !!m.userData.alpha; m.depthWrite = solid && !m.userData.alpha
         const xray = !solid && m.userData.xray
         m.opacity = solid ? 1 : xray ? Math.min(1, a * 1.4) * 0.9 : a * 0.3
         m.depthTest = !xray
@@ -326,7 +328,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     post.update(SUN, d, time); post.composer.render()
 
     ctx.clearRect(0, 0, w, h)
-    if (st.hurt > 0) { const g = ctx.createRadialGradient(w / 2, h / 2, h * 0.45, w / 2, h / 2, h * 0.95); g.addColorStop(0, "rgba(180,20,10,0)"); g.addColorStop(1, `rgba(180,20,10,${st.hurt * 0.8})`); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h) }
+    for (let i = hurts.length - 1; i >= 0; i--) {
+      const hh = hurts[i]; hh.t -= dt * 1.6; if (hh.t <= 0) { hurts.splice(i, 1); continue }
+      // angle of the shooter relative to where the camera is facing: 0 is straight ahead, positive is to the right
+      const rel = Math.atan2(-hh.x, -hh.z) - st.yaw, ang = Math.atan2(Math.sin(-rel), Math.cos(-rel)), cxs = w / 2 + Math.sin(ang) * w * 0.62, cys = h / 2 - Math.cos(ang) * h * 0.62
+      const gr = ctx.createRadialGradient(cxs, cys, 0, cxs, cys, Math.max(w, h) * 0.45)
+      gr.addColorStop(0, `rgba(210,20,10,${0.75 * hh.t})`); gr.addColorStop(1, "rgba(210,20,10,0)")
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h)
+    }
     ctx.strokeStyle = st.hit > 0 ? "#fff" : "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#000"; ctx.shadowBlur = 3
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
@@ -368,7 +377,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()

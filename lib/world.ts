@@ -33,6 +33,7 @@ export const loadWorld = async () => {
   }
   const aoTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(0,0,0,0.6)"); r.addColorStop(0.6, "rgba(0,0,0,0.25)"); r.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c) })()
   const ao = per(() => new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))
+  ao.forEach(m => (m.userData.alpha = true))
   return { models, matFor, lane, ao, metal, foe: makeFoeMats(olive, metal) }
 }
 export type World = Awaited<ReturnType<typeof loadWorld>>
