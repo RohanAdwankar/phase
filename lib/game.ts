@@ -6,6 +6,7 @@ import { makeFx } from "./fx"
 import { Enemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
+import { makeSword } from "./sword"
 import { N, terrainY } from "./materials"
 import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, Box, Chunk, CH } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
@@ -60,10 +61,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   const dbg = { freezeVm: false, hideHint: false }
   const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), pistolModel, world.metal)
-  let weapon: "pistol" | "bow" = "pistol"
-  cam.add(bow.root, pistol.root); bow.root.visible = false
-  const vmRoot = () => (weapon === "bow" ? bow.root : pistol.root)
-  const swap = (w: "pistol" | "bow") => { if (w === weapon) return; weapon = w; st.draw = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol" }
+  const sword = makeSword(world.metal)
+  type Weapon = "pistol" | "bow" | "sword"
+  let weapon: Weapon = "pistol"
+  cam.add(bow.root, pistol.root, sword.root); bow.root.visible = false; sword.root.visible = false
+  const swap = (w: Weapon) => { if (w === weapon) return; weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; sword.root.visible = w === "sword" }
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
@@ -71,7 +73,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, swingDir: 1, swingHit: false, hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -137,7 +139,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
-    for (const b of nearBoxes()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
+    for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) tMin = Math.min(tMin, rayBox(o, dir, b.min, b.max))
     for (let t = 1; t < tMin; t += 1.5) if (o.y + dir.y * t < terrainY(o.x + dir.x * t, o.z + dir.z * t)) { tMin = t; break }
     for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd()) {
       const t = rayBox(o, dir, ...hitBox(e))
@@ -156,6 +158,20 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const right = new V(1, 0, 0).applyQuaternion(cam.quaternion), up = new V(0, 1, 0).applyQuaternion(cam.quaternion)
     fx.casing(pistol.eject.clone().add(pistol.root.position).applyMatrix4(cam.matrixWorld), right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).addScaledVector(st.vel, 0.3))
     st.kick = 1; st.flash = 0.05; pistol.flash.material.rotation = Math.random() * 6
+  }
+  // sword: a swing lasts 0.42 s and cuts at its midpoint, hitting every walker of this dimension inside the arc in front of you
+  const SWING = 0.42
+  const swingCut = () => {
+    const p = st.pos, fwd = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); let any = false
+    for (const c of nearChunks(1)) for (const e of [...c.enemies]) {
+      if (e.dim !== nd()) continue
+      const dx = e.pos.x - p.x, dz = e.pos.z - p.z, dist = Math.hypot(dx, dz)
+      if (dist > 5.2 || (dist > 1.6 && (dx * fwd.x + dz * fwd.z) / dist < 0.35)) continue
+      any = true; e.hp -= 8; e.hitT = 0.2; e.pos.x += dx / dist * 1.2; e.pos.z += dz / dist * 1.2
+      fx.spark(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 28, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(new V(e.pos.x, e.pos.y + 1.7, e.pos.z), 1, DUST, 0.6)
+      if (e.hp <= 0) killWalker(e)
+    }
+    if (any) { st.hit = 0.15; st.kick = 1.4 }
   }
   const killWalker = (e: Enemy) => {
     const c = e.pos.clone().setY(e.pos.y + 1.6)
@@ -270,7 +286,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (!st.ground && st.wallCD <= 0 && st.wallT <= 0 && (nx || nz) && on("KeyW")) { st.wn.set(nx, 0, nz); st.wallT = 1.4 }
 
     st.fireT -= DT
-    if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
+    if (weapon === "sword") {
+      if (st.swing > 0) {
+        const before = st.swing; st.swing -= DT / SWING
+        if (!st.swingHit && before > 0.5 && st.swing <= 0.5) { st.swingHit = true; swingCut() }
+        if (st.swing <= 0) { st.swing = 0; st.fireT = 0.06 }
+      } else if (st.fire && st.fireT <= 0) { st.swing = 1; st.swingDir = -st.swingDir; st.swingHit = false; const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 4; st.vel.z += f.z * 4 }
+    }
+    else if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
     else if (st.fire && st.fireT <= 0) st.draw = Math.min(1, st.draw + DT / 0.55)
     else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } st.draw = 0 }
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
@@ -293,7 +316,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
       const sway = st.lookX * 0.4, lift = st.lookY * 0.4, bobY = Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0)
-      if (weapon === "bow") {
+      if (weapon === "sword") {
+        const s = 1 - st.swing, swinging = st.swing > 0, e = 1 - (1 - s) * (1 - s), arc = swinging ? Math.sin(Math.PI * s) : 0
+        sword.root.position.set(0.2 + sway + st.swingDir * (swinging ? 0.18 - 0.4 * e : 0) * (swinging ? 1 : 0), -0.3 + lift + bobY + arc * 0.04, -0.62 - arc * 0.12)
+        sword.root.rotation.set(-0.55 - arc * 0.55 + st.lookY * 0.8, 0.15 - st.lookX * 0.8 - (swinging ? st.swingDir * (0.9 - 1.9 * e) : 0), (swinging ? st.swingDir * (0.45 - 1.4 * e) : 0.2) + (st.slide ? -0.12 : 0))
+      } else if (weapon === "bow") {
         bow.root.position.set(0.15 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.2 + lift + bobY, -0.7 + st.kick * 0.03 + st.draw * 0.05)
         bow.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
       } else {
@@ -345,7 +372,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click shoot (pistol) or hold to draw and release (bow), 1 pistol, 2 bow, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword swings. 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
@@ -377,11 +404,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()
-    if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "KeyF") swap(weapon === "bow" ? "pistol" : "bow")
+    if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
     if (e.code === "KeyQ") target = Math.max(0, Math.round(target) - 1)
     if (e.code === "KeyE") target = Math.min(N - 1, Math.round(target) + 1)
     if (!e.repeat && e.code === "Space") st.jump = true
