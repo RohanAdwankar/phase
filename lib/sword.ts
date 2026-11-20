@@ -42,9 +42,18 @@ export const makeSword = (armor: PBR) => {
   }
 
   // segmented armoured sleeve: bevelled collars of alternating gold and grey separated by flexible dark undersuit, with a glowing seam
+  // forearm: wrist narrows into a cuff, swells over the muscle and eases into the elbow; the cuff hides the join with the hand
+  const cuffMat = new THREE.MeshStandardMaterial({ color: 0x2c2e34, roughness: 0.55, metalness: 0.2 })
   const arm = (pts: THREE.Vector3[], wristR: number, elbowR: number) => {
-    const c = new THREE.CatmullRomCurve3(pts)
-    tube(c, wristR, elbowR, suit)
+    const c = new THREE.CatmullRomCurve3(pts), n = 20, rad = (t: number) => lerp(wristR, elbowR, t) * (1 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.25)))
+    for (let i = 0; i < n; i++) {
+      const a = c.getPoint(i / n), b = c.getPoint((i + 1) / n), r0 = rad(i / n), r1 = rad((i + 1) / n)
+      add(new THREE.CylinderGeometry(r1, r0, a.distanceTo(b) * 1.04, 18), suit, a.clone().lerp(b, 0.5), align(b.clone().sub(a)))
+      add(new THREE.SphereGeometry(r0, 16, 12), suit, a)
+    }
+    const q = align(c.getTangent(0.06)), p = c.getPoint(0.06)
+    add(new THREE.CylinderGeometry(wristR * 1.34, wristR * 1.46, 0.05, 22), cuffMat, p, q)
+    add(new THREE.TorusGeometry(wristR * 1.42, 0.0045, 8, 24), cuffMat, c.getPoint(0.06).addScaledVector(c.getTangent(0.06), 0.027), align(c.getTangent(0.06), new V(0, 0, 1)))
   }
 
   // fingers wrap around the grip along an ellipse in the horizontal plane
@@ -69,7 +78,7 @@ export const makeSword = (armor: PBR) => {
   add(rbox(0.012, size.y * 0.56, 0.055, 0.005), suit, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
-  arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.017, 0.026)
+  arm([new V(gx + 0.03, bottom * 0.42, gz + 0.09), new V(gx + 0.06, bottom * 1.05, gz + 0.2), new V(gx + 0.1, -0.17, gz + 0.4), new V(gx + 0.17, -0.36, gz + 0.72)], 0.019, 0.031)
 
 
   // long curved single-edged blade with a gold handle, after the reference: black spine, bright serrated edge, tapering to a swept tip

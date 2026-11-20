@@ -42,9 +42,18 @@ export const makeViewmodel = (armor: PBR) => {
   }
 
   // segmented armoured sleeve: bevelled collars of alternating gold and grey separated by flexible dark undersuit, with a glowing seam
+  // forearm: wrist narrows into a cuff, swells over the muscle and eases into the elbow; the cuff hides the join with the hand
+  const cuffMat = new THREE.MeshStandardMaterial({ color: 0x2c2e34, roughness: 0.55, metalness: 0.2 })
   const arm = (pts: THREE.Vector3[], wristR: number, elbowR: number) => {
-    const c = new THREE.CatmullRomCurve3(pts)
-    tube(c, wristR, elbowR, suit)
+    const c = new THREE.CatmullRomCurve3(pts), n = 20, rad = (t: number) => lerp(wristR, elbowR, t) * (1 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.25)))
+    for (let i = 0; i < n; i++) {
+      const a = c.getPoint(i / n), b = c.getPoint((i + 1) / n), r0 = rad(i / n), r1 = rad((i + 1) / n)
+      add(new THREE.CylinderGeometry(r1, r0, a.distanceTo(b) * 1.04, 18), suit, a.clone().lerp(b, 0.5), align(b.clone().sub(a)))
+      add(new THREE.SphereGeometry(r0, 16, 12), suit, a)
+    }
+    const q = align(c.getTangent(0.06)), p = c.getPoint(0.06)
+    add(new THREE.CylinderGeometry(wristR * 1.34, wristR * 1.46, 0.05, 22), cuffMat, p, q)
+    add(new THREE.TorusGeometry(wristR * 1.42, 0.0045, 8, 24), cuffMat, c.getPoint(0.06).addScaledVector(c.getTangent(0.06), 0.027), align(c.getTangent(0.06), new V(0, 0, 1)))
   }
 
   // fingers wrap around the grip along an ellipse in the horizontal plane
@@ -69,7 +78,7 @@ export const makeViewmodel = (armor: PBR) => {
   add(rbox(0.012, size.y * 0.56, 0.055, 0.005), suit, new V(gx + 0.058, bottom * 0.4, gz + 0.046), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0)))
   limbChain([new V(gx + 0.022, top * 0.08, gz + 0.062), new V(gx - 0.026, top * 0.12, gz + 0.03), new V(gx - 0.034, top * 0.2, gz - 0.02), new V(gx - 0.03, top * 0.18, gz - 0.055)], 0.0125, suit)
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
-  arm([new V(gx + 0.052, bottom * 0.2, gz + 0.1), new V(gx + 0.085, bottom * 0.7, gz + 0.22), new V(gx + 0.1, bottom * 2.6, gz + 0.4), new V(gx + 0.13, -0.42, gz + 0.72)], 0.017, 0.026)
+  arm([new V(gx + 0.03, bottom * 0.42, gz + 0.09), new V(gx + 0.06, bottom * 1.05, gz + 0.2), new V(gx + 0.1, -0.17, gz + 0.4), new V(gx + 0.17, -0.36, gz + 0.72)], 0.019, 0.031)
 
   // recurve bow: a riser at the hand, two limbs that curve toward the archer, and a string between the tips
   const wood = new THREE.MeshStandardMaterial({ color: 0x2e2118, roughness: 0.7, metalness: 0 })
@@ -104,7 +113,9 @@ export const makeViewmodel = (armor: PBR) => {
   const forearm = new THREE.CatmullRomCurve3([new V(0, -0.012, 0.09), new V(-0.03, -0.045, 0.2), new V(-0.1, -0.12, 0.38), new V(-0.2, -0.26, 0.62)])
   const ft = new THREE.Group(); drawHand.add(ft)
   {
-    ;[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].forEach(i => { const a = forearm.getPoint(i / 14), b = forearm.getPoint((i + 1) / 14), r = lerp(0.017, 0.026, i / 14); const cy = new THREE.Mesh(new THREE.CylinderGeometry(lerp(0.017, 0.026, (i + 1) / 14), r, a.distanceTo(b) * 1.03, 14), suit); cy.position.copy(a).lerp(b, 0.5); cy.quaternion.copy(align(b.clone().sub(a))); ft.add(cy); const bl = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), suit); bl.position.copy(a); ft.add(bl) })
+    const rad = (t: number) => lerp(0.019, 0.031, t) * (1 + 0.3 * Math.sin(Math.PI * Math.min(1, t * 1.25)))
+    for (let i = 0; i < 18; i++) { const a = forearm.getPoint(i / 18), b = forearm.getPoint((i + 1) / 18), r0 = rad(i / 18), r1 = rad((i + 1) / 18); const cy = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, a.distanceTo(b) * 1.04, 16), suit); cy.position.copy(a).lerp(b, 0.5); cy.quaternion.copy(align(b.clone().sub(a))); ft.add(cy); const bl = new THREE.Mesh(new THREE.SphereGeometry(r0, 14, 10), suit); bl.position.copy(a); ft.add(bl) }
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.028, 0.05, 20), cuffMat); cuff.position.copy(forearm.getPoint(0.06)); cuff.quaternion.copy(align(forearm.getTangent(0.06))); ft.add(cuff)
   }
 
   let drawAmt = 0
