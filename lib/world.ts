@@ -95,7 +95,7 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     if (pit(k)) { const g = new THREE.PlaneGeometry(HW * 2, 20).rotateX(-Math.PI / 2); triUV(g); const gap = mesh(g, w.body[dim], 0, -9, z0 - 20, false); gap.receiveShadow = false }
     for (const [za, zb] of pieces) {
       const len = zb - za, zm = (za + zb) / 2
-      s.boxes.push({ min: new V(-HW, -4, za), max: new V(HW, 2, zb), dim, floor: true })
+      s.boxes.push({ min: new V(-HW, -30, za), max: new V(HW, 2, zb), dim, floor: true })
       const bodyGeo = new THREE.BoxGeometry(HW * 2, 3, len, 4, 1, Math.ceil(len / 5)); triUV(bodyGeo); mesh(bodyGeo, w.body[dim], 0, -3.1, zm, false)
       const top = new THREE.PlaneGeometry(HW * 2, len, 48, Math.ceil(len * 1.2)); top.rotateX(-Math.PI / 2)
       for (let n = 0; n < top.attributes.position.count; n++) top.attributes.position.setY(n, terrainY(top.attributes.position.getX(n), zm + top.attributes.position.getZ(n)))
@@ -111,6 +111,10 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
       const under = new THREE.Mesh(g2, gm2); add(under, s.detail)
     }
 
+    if (i === 0) {
+      s.boxes.push({ min: new V(-HW - 1, -30, 0), max: new V(HW + 1, 80, 2), dim })
+      const g = new THREE.BoxGeometry(HW * 2 + 2, 40, 2, 4, 4, 1); triUV(g); mesh(g, w.body[dim], 0, 8, 1, false)
+    }
     // cliffs
     for (const side of [-1, 1]) {
       let zz = z1

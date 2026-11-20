@@ -204,7 +204,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       }
     }
     best = Math.max(best, Math.floor(-p.z))
-    if (st.hp <= 0 || p.y < -30) respawn()
+    // safety net so nothing can leave the arena: clamp to the lane and cap height, and respawn once below the chasm floor
+    p.x = Math.max(-HW - 0.2, Math.min(HW + 0.2, p.x)); p.z = Math.min(p.z, 1.4); p.y = Math.min(p.y, 60)
+    if (st.hp <= 0 || p.y < -9.5) respawn()
     for (let i = segAt() - 2; i < segAt() + 8; i++) if (i >= 0 && !segs.has(i)) gen(i)
     for (const [i, s] of segs) if (i < segAt() - 2) { disposeSegment(s); segs.delete(i) }
   }
