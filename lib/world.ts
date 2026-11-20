@@ -45,17 +45,19 @@ const triUV = (geo: THREE.BufferGeometry, scale = 5) => {
 }
 
 const blade = (() => {
-  const rows = [[0, 0.02], [0.26, 0.016], [0.5, 0.01], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
+  // an arched blade: wide at the base, curving over and drooping toward a fine tip
+  const rows = [[0, 0.024], [0.12, 0.023], [0.28, 0.02], [0.46, 0.015], [0.64, 0.009], [0.8, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
   const lo = new THREE.Color(0x1a2c0e), mid = new THREE.Color(0x4a6f22), hi = new THREE.Color(0xa6b660)
-  rows.forEach(([y, w], r) => {
-    const c = y < 0.35 ? lo.clone().lerp(mid, y / 0.35) : mid.clone().lerp(hi, (y - 0.35) / 0.4), z = y * y * 0.7
-    pos.push(-w, y, z, w, y, z); col.push(c.r, c.g, c.b, c.r, c.g, c.b)
+  rows.forEach(([y, wd], r) => {
+    const c = y < 0.4 ? lo.clone().lerp(mid, y / 0.4) : mid.clone().lerp(hi, (y - 0.4) / 0.4), z = y * y * 0.9 + y * y * y * 1.4
+    pos.push(-wd, y, z, wd, y, z); col.push(c.r, c.g, c.b, c.r, c.g, c.b)
     if (r < rows.length - 1) idx.push(r * 2, r * 2 + 1, r * 2 + 2, r * 2 + 1, r * 2 + 3, r * 2 + 2)
   })
   const g = new THREE.BufferGeometry()
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx)
   return g
 })()
+
 
 export const hillY = (x: number, z: number) => {
   const a = Math.abs(x) - HW - 6, ramp = Math.min(1, Math.max(0, a / 45)), d = Math.max(0, a - 45)

@@ -53,22 +53,25 @@ export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = 
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { uTime, uPlayer, uPatch: { value: patch } })
     sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${TERRAIN_GLSL}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
-      float id = float(gl_InstanceID);
-      vec3 base = vec3(uPatch.x + hh(id * 1.31 + 7.0) * uPatch.z, 0.0, uPatch.y + hh(id * 2.17 + 3.0) * uPatch.w); base.y = terrainY(base.xz);
-      float dist = distance(base.xz, uPlayer.xz), rk = hh(id * 7.1 + 2.0), rh = hh(id * 5.3 + 9.0), ang = hh(id * 3.7 + 1.0) * 6.2832;
+      float id = float(gl_InstanceID), cid = floor(id / 9.0);
+      // blades grow in tufts of nine that splay outward from a shared centre
+      vec2 centre = vec2(uPatch.x + hh(cid * 1.31 + 7.0) * uPatch.z, uPatch.y + hh(cid * 2.17 + 3.0) * uPatch.w);
+      vec2 off = (vec2(hh(id * 3.1 + 1.0), hh(id * 4.7 + 2.0)) - 0.5) * 0.5;
+      vec3 base = vec3(centre + off, 0.0); base = vec3(base.x, terrainY(base.xy), base.y);
+      float dist = distance(base.xz, uPlayer.xz), rk = hh(cid * 7.1 + 2.0), rh = hh(id * 5.3 + 9.0), tuft = hh(cid * 5.3 + 4.0);
+      float ang = atan(-off.x, off.y) + (hh(id * 3.7 + 1.0) - 0.5) * 1.0;
       float keep = step(rk, clamp(1.0 - (dist - 4.0) / ${undergrowth ? "12.0" : "30.0"}, 0.0, 1.0));
       float clump = 0.5 + 0.5 * sin(base.x * 0.9 + sin(base.z * 1.3) * 2.0) * sin(base.z * 0.8 + base.x * 0.4);
-      float sc = (${undergrowth ? "0.18 + rh * 0.22" : "0.3 + rh * 0.5"}) * (0.65 + 0.9 * clump) * keep;
+      float sc = (${undergrowth ? "0.18 + tuft * 0.2" : "0.32 + tuft * 0.5"}) * (0.75 + 0.5 * rh) * (0.7 + 0.8 * clump) * keep;
       float k = pow(position.y * 1.6, 2.0);
-      vec3 p = vec3(position.x, position.y, position.z) * sc;
-      float lean = (hh(id * 17.3) - 0.5) * 1.1; p.x += lean * position.y * position.y * sc; p.z += pow(position.y, 2.0) * 0.5 * sc * step(0.85, hh(id * 19.9));
+      vec3 p = position * sc;
       p.x += (sin(uTime * 1.7 + base.x * 0.35 + base.z * 0.27) * 0.16 + sin(uTime * 3.1 + base.x * 1.3) * 0.03) * k * sc;
       p.z += cos(uTime * 1.3 + base.z * 0.4) * 0.09 * k * sc;
       float ca = cos(ang), sa = sin(ang); p.xz = vec2(ca * p.x - sa * p.z, sa * p.x + ca * p.z);
       transformed = p + base;
-      vColor.rgb *= 0.7 + 0.4 * hh(id * 11.7);
+      vColor.rgb *= 0.78 + 0.3 * hh(id * 11.7) + 0.25 * (tuft - 0.5);
       float pt = 0.5 + 0.5 * sin(base.x * 0.17 + sin(base.z * 0.11) * 2.0) * sin(base.z * 0.13);
-      vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), clamp(hh(id * 13.1) * 0.35 + pt * 0.45, 0.0, 0.85));`)
+      vColor.rgb = mix(vColor.rgb, vec3(0.55, 0.5, 0.2) * (0.35 + position.y), clamp(step(0.8, hh(cid * 13.1)) * 0.6 + pt * 0.4, 0.0, 0.85));`)
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = vec3(0.0, 1.0, 0.0);")
   }
   return m
