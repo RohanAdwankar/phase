@@ -252,10 +252,18 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let tMin = len, hit: Enemy | null = null
     for (const c of ch) for (const b of c.boxes) if (b.dim === a.dim) tMin = Math.min(tMin, rayCollider(p, dir, b))
     for (const c of ch) for (const e of c.enemies) if (e.dim === a.dim) { const t = rayBox(p, dir, ...hitBox(e)); if (t < tMin) { tMin = t; hit = e } }
+    // a planted TNT pile is hit like a sphere sized to the pile; hitting it sets it off
+    let tntHit: Bomb | null = null
+    for (const bm of bombs) if (bm.kind === "tnt" && bm.dim === a.dim) {
+      const rad = 0.5 + 0.12 * Math.sqrt(bm.n), cx = bm.pos.x - p.x, cy = bm.pos.y + 0.3 - p.y, cz = bm.pos.z - p.z, proj = cx * dir.x + cy * dir.y + cz * dir.z
+      if (proj < 0 || proj > Math.min(tMin, len) + rad) continue
+      if (cx * cx + cy * cy + cz * cz - proj * proj < rad * rad && proj - rad < tMin) { tMin = Math.max(0, proj - rad); tntHit = bm }
+    }
     const end = p.clone().addScaledVector(dir, Math.min(tMin, len))
     const gy = terrainY(end.x, end.z), onTerrain = end.y < gy
     if (tMin < len || onTerrain) {
       a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
+      if (tntHit) { (tntHit as Bomb).fuse = 0.05; a.life = 0; return }
       if (hit) { st.hit = 0.15; hit.hitT = 0.14; hit.hp -= 4 + 12 * a.power * a.power; fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
       else { fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
       return
@@ -316,9 +324,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.4)); p.y = Math.max(p.y, terrainY(p.x, p.z))
     const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 1.8)
     st.tCd = 0.7
-    if (near) { near.n++; near.fuse = Math.max(near.fuse, 2.2); near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
+    if (near) { near.n++; near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
     const m = tntMesh(1); m.position.copy(p); scene.add(m)
-    bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: 3.4, n: 1 })
+    bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
   }
   const bombStep = (dt: number) => {
     st.gCd -= dt; st.tCd -= dt
@@ -334,7 +342,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === b.dim && Math.hypot(e.pos.x - b.pos.x, e.pos.z - b.pos.z) < 1.9 && b.pos.y < e.pos.y + 3) b.fuse = Math.min(b.fuse, 0.02)
       }
       b.mesh.position.copy(b.pos)
-      const spark = b.mesh.getObjectByName("spark"); const pulse = 1 + 0.5 * Math.sin(time * (14 + 30 / Math.max(0.2, b.fuse)))
+      const spark = b.mesh.getObjectByName("spark"); const pulse = 1 + 0.4 * Math.sin(time * (b.fuse === Infinity ? 6 : 14 + 30 / Math.max(0.2, b.fuse)))
       if (spark) spark.scale.setScalar(pulse); else b.mesh.scale.setScalar(1 + 0.05 * Math.sin(time * 40))
       b.mesh.visible = Math.abs(b.dim - d) < 1.1
       if (b.fuse <= 0) { blast(b); b.mesh.removeFromParent(); bombs.splice(i, 1) }
@@ -572,7 +580,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow). 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
