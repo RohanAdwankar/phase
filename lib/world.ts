@@ -9,6 +9,8 @@ const V = THREE.Vector3
 // The world is an endless grid of chunks. Every dimension has its own layout drawn from a hash of its coordinates, so a
 // wall in one dimension may be an opening in the next.
 export const CH = 40, CELL = 20
+// enemy toughness grows with the player's level (bosses defeated); read when a chunk spawns its patrols
+export const diff = { hp: 1 }
 // ell marks a boulder: a solid ellipsoid (centre, horizontal radii, centre height, half height) instead of a plain axis-aligned box
 export type Ell = { cx: number; cz: number; rx: number; rz: number; cy: number; hh: number; bot: number }
 export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number; ell?: Ell }
@@ -205,6 +207,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
           const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12), rr = STATS[kind].r
           if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < o.r + rr + 0.6)) continue
           const e = makeEnemy(kind, w.foe, dim, pos)
+          e.hp *= diff.hp
           pos.y = terrainY(pos.x, pos.z) + e.fy; e.mesh.position.copy(pos); c.group.add(e.mesh); if (kind !== "flyer") blob(dim, pos.x, pos.z, rr * 3, rr * 3)
           c.enemies.push(e)
         }

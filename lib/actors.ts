@@ -7,15 +7,16 @@ const V = THREE.Vector3
 const N = 5
 export type Mat = THREE.MeshStandardMaterial | THREE.MeshBasicMaterial
 export type FoeMats = { olive: Mat[]; yellow: Mat[]; metal: Mat[]; lamp: Mat[] }
-export type Kind = "walker" | "swarmer" | "flyer" | "brute"
+export type Kind = "walker" | "swarmer" | "flyer" | "brute" | "boss"
 // r is the body radius used for pushing units apart and out of rock, hr the radius of the hit box, h its height, fy the hover height
 export type Enemy = { kind: Kind; mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number, slam?: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number; hitT: number
-  r: number; hr: number; h: number; fy: number; speed: number; t1: number; t2: number }
+  r: number; hr: number; h: number; fy: number; speed: number; t1: number; t2: number; shiftT?: number; maxHp?: number; volT?: number }
 export const STATS: Record<Kind, { hp: number; r: number; hr: number; h: number; fy: number; speed: number }> = {
   walker: { hp: 12, r: 1.8, hr: 1.3, h: 3, fy: 0, speed: 2.5 },
   swarmer: { hp: 2, r: 0.7, hr: 0.75, h: 1.1, fy: 0, speed: 8.5 },
   flyer: { hp: 6, r: 1.3, hr: 1.2, h: 1.4, fy: 5, speed: 6 },
   brute: { hp: 45, r: 2.7, hr: 2.2, h: 4.4, fy: 0, speed: 3.4 },
+  boss: { hp: 150, r: 4.6, hr: 3.8, h: 7.6, fy: 0, speed: 3.1 },
 }
 
 const rbox = (w: number, h: number, d: number, r = 0.02) => new RoundedBoxGeometry(w, h, d, 3, r)
@@ -158,5 +159,6 @@ const brute = (m: FoeMats, dim: number) => {
 
 export const makeEnemy = (kind: Kind, m: FoeMats, dim: number, pos: THREE.Vector3): Enemy => {
   const s = STATS[kind], b = kind === "walker" ? walker(m, dim) : kind === "swarmer" ? swarmer(m, dim) : kind === "flyer" ? flyer(m, dim) : brute(m, dim)
+  if (kind === "boss") b.mesh.scale.setScalar(1.72)
   return { kind, mesh: b.mesh, update: b.update as Enemy["update"], turret: b.turret, pos, dim, hp: s.hp, fireT: 0.8 + Math.random(), hitT: 0, r: s.r, hr: s.hr, h: s.h, fy: s.fy, speed: s.speed, t1: 0, t2: 0 }
 }

@@ -7,10 +7,11 @@ import { Enemy, Kind, makeEnemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
-import { N, terrainY } from "./materials"
+import { N, terrainY, track } from "./materials"
 import { gradient } from "./toon"
 import { createSfx, makeSfx } from "./audio"
-import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, clearRock, Box, Chunk, CH } from "./world"
+import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, clearRock, ellBox, hash, diff, Box, Chunk, CH } from "./world"
+import { BOULDERS } from "./rocks"
 import { registry, uTime, uPlayer } from "./materials"
 
 const V = THREE.Vector3
@@ -85,7 +86,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -162,7 +163,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     sfx.draw.stop(); sfx.play("death"); fx.spark(new V(st.pos.x, st.pos.y + 1, st.pos.z), 50, new V(0, 1, 0), new THREE.Color(0xff4020))
   }
   const respawn = () => {
-    st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
+    st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = st.maxHp; st.wallT = 0
     d = target = checkpoint.dim
     st.inv = 2.5; st.respawnFx = 1.4; st.hurt = 0; hurts.length = 0; sfx.play("respawn")
   }
@@ -204,7 +205,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V())
     if (hit) {
       st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
-      if (--hit.hp <= 0) {
+      if ((hit.hp -= dm()) <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
         fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++
         for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
@@ -219,7 +220,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const SWING = 0.45, MAXCHARGE = 1.0
   const cutAt = (e: Enemy, dmg: number, shove: number) => {
     const dx = e.pos.x - st.pos.x, dz = e.pos.z - st.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz)), c = new V(e.pos.x, e.pos.y + 1.7, e.pos.z)
-    e.hp -= dmg; e.hitT = 0.2; e.pos.x += dx / dist * shove; e.pos.z += dz / dist * shove
+    e.hp -= dmg * dm(); e.hitT = 0.2; e.pos.x += dx / dist * shove; e.pos.z += dz / dist * shove
     fx.spark(c, 12, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(c, 1, DUST, 0.6)
     if (e.hp <= 0) killWalker(e)
   }
@@ -259,7 +260,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
     const c = e.pos.clone().setY(e.pos.y + 1.5)
     for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
-    const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260] }[e.kind]
+    const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260], boss: [16, 20, 420] }[e.kind]
+    if (e.kind === "boss") bossDown(e)
     explode(c, e.dim, big[0], big[1], 0.7 + big[0] * 0.05, 0)
     fx.spark(c, big[2], new V(0, 1, 0), ORANGE); fx.smoke(c, Math.round(big[0] * 2), new THREE.Color(0x2a2a2a), big[0] * 0.34)
   }
@@ -282,13 +284,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (tMin < len || onTerrain) {
       a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
       if (tntHit) { (tntHit as Bomb).fuse = 0.05; a.life = 0; return }
-      if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; hit.hp -= 4 + 12 * a.power * a.power; fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
+      if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; hit.hp -= (4 + 12 * a.power * a.power) * dm(); fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
       else { sfx.play("thud", end, 0.7); fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
       return
     }
     p.copy(end); a.vel.y -= 13 * dt; a.mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), a.vel.clone().normalize())
   }
 
+  const dm = () => 1 + 0.2 * st.boon.dmg, cdm = () => Math.pow(0.85, st.boon.cd)
   // each hit remembers where it came from in the world, so the flash can point at the shooter as the player turns
   const hurts: { x: number; z: number; t: number }[] = []
   // explosives: pistol alt-fire (G) throws a grenade, bow alt-fire (G) plants TNT. TNT in the same spot stacks and the blast compounds.
@@ -315,7 +318,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.dim !== dim || Math.abs(e.pos.x - pos.x) > radius || Math.abs(e.pos.z - pos.z) > radius) continue
       const dx = e.pos.x - pos.x, dy = e.pos.y + 1.5 - pos.y, dz = e.pos.z - pos.z, dist = Math.hypot(dx, dy, dz)
       if (dist > radius) continue
-      e.hp -= dmg * (1 - 0.65 * dist / radius); e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
+      e.hp -= dmg * dm() * (1 - 0.65 * dist / radius); e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
       if (e.hp <= 0) killWalker(e)
     }
     for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < chain && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
@@ -333,7 +336,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const throwGrenade = () => {
     if (st.gCd > 0) return
-    st.gCd = 1.6; sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
+    st.gCd = 1.6 * cdm(); sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
     m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
     bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
   }
@@ -344,7 +347,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let s = 1; s < t; s += 0.5) if (o.y + dir.y * s < terrainY(o.x + dir.x * s, o.z + dir.z * s)) { t = s; break }
     const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.8)); p.y = Math.max(p.y, terrainY(p.x, p.z))
     const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 3.2)
-    st.tCd = 0.7; sfx.play("clink")
+    st.tCd = 0.7 * cdm(); sfx.play("clink")
     if (near) { near.n++; near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
     const m = tntMesh(1); m.position.copy(p); scene.add(m)
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
@@ -385,7 +388,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
-      if (Math.abs(e.dim - d) > 1.1) continue
+      if (Math.abs(e.dim - d) > 1.1 && e.kind !== "boss") continue
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       let moving = false, mx = 0, mz = 0
@@ -404,16 +407,18 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         const charging = e.t2 > 0; if (charging) e.t2 -= dt
         moving = dist < 80 && dist > 3.6; if (moving) { mx = dx / dist; mz = dz / dist }
         if (!charging && e.t1 <= 0 && dist < 26 && dist > 8) { e.t2 = 0.9; e.t1 = 3.2 }
-        if (dist < 5 && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < 6) { hurtPlayer(e, 24, "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
+        const reach = e.kind === "boss" ? 9 : 5
+        if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
         e.fireT -= dt
       }
-      const spd = e.kind === "brute" && e.t2 > 0 ? e.speed * 3.3 : e.speed
+      const spd = (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       rocksNear(e)
       const gy = terrainY(e.pos.x, e.pos.z)
       e.pos.y = e.kind === "flyer" ? gy + e.fy + Math.sin(time * 2.2 + e.pos.x) * 0.7 : gy
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
-      e.update(dt, moving, time * 5, e.kind === "brute" ? Math.max(0, e.fireT / 0.9) : 0)
+      e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" ? Math.max(0, e.fireT / 0.9) : 0)
+      if (e.kind === "boss") bossTick(e, dt, dist, live)
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e); continue }
       if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
@@ -443,17 +448,138 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   // stream the endless world in and out around the player, building at most a couple of pieces per frame
   // debug/recording: spawn a pack of enemies in a ring around the player
-  const summon = (kind: Kind, n: number, dmin: number, dmax: number, dim = nd(), yaw0 = 0, arc = Math.PI * 2) => {
+  const summon = (kind: Kind, n: number, dmin: number, dmax: number, dim = nd(), yaw0 = 0, arc = Math.PI * 2, at: THREE.Vector3 = st.pos) => {
     const out: Enemy[] = []
     for (let i = 0; i < n; i++) {
       const a = yaw0 + (arc >= Math.PI * 2 ? Math.random() * arc : (Math.random() - 0.5) * arc), rr = dmin + Math.random() * (dmax - dmin)
-      const x = st.pos.x - Math.sin(a) * rr, z = st.pos.z - Math.cos(a) * rr, pos = new V(x, 0, z), e = makeEnemy(kind, world.foe, dim, pos)
+      const x = at.x - Math.sin(a) * rr, z = at.z - Math.cos(a) * rr, pos = new V(x, 0, z), e = makeEnemy(kind, world.foe, dim, pos)
       const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, dim, pos, e.r)
       pos.y = terrainY(pos.x, pos.z) + e.fy; e.mesh.position.copy(pos)
       const ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) { continue }
       ch.group.add(e.mesh); ch.enemies.push(e); out.push(e)
     }
     return out
+  }
+  // ---- shrines: a multi-dimensional puzzle, then a boss, then progression ----
+  // Each sector holds a shrine ringed by five pylons. Pylon i exists only in dimension i, standing on a tall boulder (climb it, wall-run it).
+  // Beams of light let you spot the pylons while peeking at other dimensions. Light them in the order shown, or the shrine resets and a swarm is sent.
+  // Lighting all five wakes the warden, a boss that keeps slipping between dimensions and can only be hurt in the one it is standing in.
+  const SS = 300
+  type Pylon = { i: number; dim: number; x: number; z: number; ty: number; top: number; placed: boolean; group: THREE.Group | null; chunk: Chunk | null; crystal: THREE.Mesh | null }
+  type Shrine = { cx: number; cz: number; order: number[]; pylons: Pylon[]; lit: boolean[]; next: number; state: "idle" | "boss" | "done"; boss: Enemy | null }
+  const shrines = new Map<string, Shrine>()
+  const GLOWC = GLOW.map(c => new THREE.Color(c))
+  const pylonMats = [...Array(N)].map((_, i) => ({
+    off: track(i, new THREE.MeshBasicMaterial({ color: GLOWC[i].clone().multiplyScalar(2.2), transparent: true, toneMapped: false })) as THREE.MeshBasicMaterial,
+    on: track(i, new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.95, 0.7).multiplyScalar(3), transparent: true, toneMapped: false })) as THREE.MeshBasicMaterial,
+    beam: track(i, new THREE.MeshBasicMaterial({ color: GLOWC[i].clone().multiplyScalar(1.6), transparent: true, toneMapped: false, depthWrite: false })) as THREE.MeshBasicMaterial,
+  }))
+  for (const m of pylonMats) for (const x of [m.off, m.on, m.beam]) x.userData.xray = true
+  const crystalGeo = new THREE.OctahedronGeometry(0.9), beamGeo2 = new THREE.CylinderGeometry(0.14, 0.14, 70, 6)
+  const getShrine = (sx: number, sz: number) => {
+    const key = `${sx},${sz}`; let s = shrines.get(key); if (s) return s
+    let cx = (sx + 0.5) * SS + (hash(sx, sz, 1) - 0.5) * 110, cz = (sz + 0.5) * SS + (hash(sx, sz, 2) - 0.5) * 110
+    const d0 = Math.hypot(cx, cz); if (d0 < 140) { cx *= 140 / Math.max(1, d0); cz *= 140 / Math.max(1, d0) }
+    const order = [0, 1, 2, 3, 4]; for (let i = 4; i > 0; i--) { const j = Math.floor(hash(sx, sz, 10 + i) * (i + 1)); [order[i], order[j]] = [order[j], order[i]] }
+    const pylons: Pylon[] = [...Array(N)].map((_, i) => { const a = (i / N) * Math.PI * 2 + hash(sx, sz, 20 + i) * 0.8, r = 30 + hash(sx, sz, 30 + i) * 8; return { i, dim: i, x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, ty: 0, top: 0, placed: false, group: null, chunk: null, crystal: null } })
+    s = { cx, cz, order, pylons, lit: [false, false, false, false, false], next: 0, state: "idle", boss: null }
+    shrines.set(key, s); return s
+  }
+  const spotOpen = (dim: number, x: number, z: number) => {
+    for (const ch of chunks.values()) {
+      for (const b of ch.boxes) if (b.dim === dim && (b.ell ? Math.hypot(b.ell.cx - x, b.ell.cz - z) < Math.max(b.ell.rx, b.ell.rz) + 6 : x > b.min.x - 6 && x < b.max.x + 6 && z > b.min.z - 6 && z < b.max.z + 6)) return false
+      for (const q of ch.pits) if (q.dim === dim && x > q.x0 - 6 && x < q.x1 + 6 && z > q.z0 - 6 && z < q.z1 + 6) return false
+    }
+    return true
+  }
+  const setLit = (p: Pylon, lit: boolean) => { if (p.crystal) p.crystal.material = lit ? pylonMats[p.dim].on : pylonMats[p.dim].off }
+  const ensurePylon = (sh: Shrine, p: Pylon) => {
+    const ch = chunks.get(chunkKey(Math.floor(p.x / CH), Math.floor(p.z / CH))); if (!ch) return
+    if (p.chunk === ch && p.group?.parent) return
+    if (!p.placed) {
+      for (let k = 0; k < 14 && !spotOpen(p.dim, p.x, p.z); k++) { const a = Math.atan2(p.z - sh.cz, p.x - sh.cx) + (hash(p.i, k, sh.cx) - 0.5) * 0.9, r = 26 + hash(k, p.i, sh.cz) * 18; p.x = sh.cx + Math.cos(a) * r; p.z = sh.cz + Math.sin(a) * r }
+      p.placed = true
+    }
+    const c2 = chunks.get(chunkKey(Math.floor(p.x / CH), Math.floor(p.z / CH))); if (!c2) return
+    const h = 6.2, rad = 2.5, ty = terrainY(p.x, p.z), cy = ty + h * 0.45, topY = cy + h * 0.97
+    const g2 = new THREE.Group(), pillar = new THREE.Mesh(BOULDERS[p.i % 4], world.rock[p.dim]); pillar.scale.set(rad, h, rad); pillar.position.set(p.x, cy, p.z); pillar.castShadow = true; pillar.receiveShadow = true; g2.add(pillar)
+    const crystal = new THREE.Mesh(crystalGeo, pylonMats[p.dim].off); crystal.scale.set(0.8, 1.5, 0.8); crystal.position.set(p.x, topY + 1.9, p.z); g2.add(crystal)
+    const beam = new THREE.Mesh(beamGeo2, pylonMats[p.dim].beam); beam.position.set(p.x, topY + 36, p.z); g2.add(beam)
+    c2.group.add(g2); c2.boxes.push(ellBox(p.x, cy, p.z, rad * 0.9, h * 0.97, rad * 0.9, p.dim))
+    p.ty = ty; p.top = topY; p.group = g2; p.chunk = c2; p.crystal = crystal; setLit(p, sh.lit[p.i])
+  }
+  const banner = (t: string, secs = 3) => { st.banner = t; st.bannerT = secs }
+  const resetShrine = (sh: Shrine) => { sh.lit.fill(false); sh.next = 0; for (const p of sh.pylons) setLit(p, false) }
+  const startBoss = (sh: Shrine) => {
+    sh.state = "boss"
+    const dim = (nd() + 2) % N, pos = new V(sh.cx, 0, sh.cz), e = makeEnemy("boss", world.foe, dim, pos)
+    const bx: Box[] = []; for (const ch of chunks.values()) bx.push(...ch.boxes); clearRock(bx, dim, pos, e.r)
+    pos.y = terrainY(pos.x, pos.z); e.mesh.position.copy(pos)
+    e.maxHp = e.hp = 150 + 60 * st.level; e.shiftT = 6.5; e.fireT = 1.2
+    const ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) { sh.state = "idle"; resetShrine(sh); return }
+    ch.group.add(e.mesh); ch.enemies.push(e); sh.boss = e
+    sfx.play("bigboom", pos, 1.2); fx.spark(pos.clone().setY(pos.y + 2), 200, new V(0, 1, 0), new THREE.Color(0xffd070)); st.shake = 1.4
+    banner("the warden wakes: it hides in other dimensions. hit it where it stands", 4)
+  }
+  const shiftBoss = (e: Enemy) => {
+    const old = e.mesh, parent = old.parent; old.removeFromParent()
+    let nd2 = Math.floor(Math.random() * (N - 1)); if (nd2 >= e.dim) nd2++
+    const nb = makeEnemy("boss", world.foe, nd2, e.pos)
+    e.mesh = nb.mesh; e.update = nb.update; e.turret = nb.turret; e.dim = nd2; e.mesh.position.copy(e.pos); parent?.add(e.mesh)
+    fx.smoke(e.pos.clone().setY(e.pos.y + 2.5), 8, new THREE.Color(0x303040), 3); fx.spark(e.pos.clone().setY(e.pos.y + 3), 70, new V(0, 1, 0), GLOWC[nd2])
+    sfx.play("phase", e.pos, 1)
+    summon("swarmer", 4, 6, 11, nd2, 0, Math.PI * 2, e.pos)
+    e.shiftT = Math.max(4, 7 - 0.4 * st.level)
+  }
+  const bossTick = (e: Enemy, dt: number, dist: number, live: boolean) => {
+    e.shiftT = (e.shiftT ?? 6) - dt
+    if (e.shiftT < 1.3 && Math.random() < 0.7) fx.spark(new V(e.pos.x + (Math.random() - 0.5) * 5, e.pos.y + 1 + Math.random() * 6, e.pos.z + (Math.random() - 0.5) * 5), 2, new V(0, 1, 0), GLOWC[e.dim])
+    if (e.shiftT <= 0) shiftBoss(e)
+    // orb volley: three shots in a spread
+    e.maxHp = e.maxHp ?? e.hp
+    e.t1 = e.t1
+    if (live && dist < 60 && ((e.volT = (e.volT ?? 1.5) - dt) <= 0) && clearShot(e)) {
+      e.volT = 1.9
+      const from = e.turret.getWorldPosition(new V()), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
+      for (let k = -1; k <= 1; k++) { const tt = to.clone(); tt.x += k * 3 * Math.cos(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); tt.z -= k * 3 * Math.sin(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); beam(from, tt, 0.07, 0.14) }
+      sfx.play("zap", from, 1.2); if (Math.random() < 0.75) hurtPlayer(e, 13, "blasted by the warden")
+    }
+  }
+  const bossDown = (e: Enemy) => {
+    for (const sh of shrines.values()) if (sh.boss === e) { sh.state = "done"; sh.boss = null }
+    st.level++; diff.hp = 1 + 0.25 * st.level
+    const k = (st.level - 1) % 4, text = ["max health +20", "damage +20%", "move speed +8%", "cooldowns -15%"][k]
+    if (k === 0) st.maxHp += 20; else if (k === 1) st.boon.dmg++; else if (k === 2) st.boon.spd++; else st.boon.cd++
+    st.hp = st.maxHp; banner(`warden defeated. level ${st.level}. ${text}`, 4.5); sfx.play("ready")
+  }
+  const shrineTick = (dt: number) => {
+    const p = st.pos, sx0 = Math.floor(p.x / SS), sz0 = Math.floor(p.z / SS)
+    let best: Shrine | null = null, bd = 1e9
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const sh = getShrine(sx0 + dx, sz0 + dz); if (sh.state === "done") continue
+      const dd = Math.hypot(sh.cx - p.x, sh.cz - p.z); if (dd < bd) { bd = dd; best = sh }
+      if (dd < 110) {
+        for (const py of sh.pylons) {
+          ensurePylon(sh, py)
+          if (py.group && py.crystal) { py.crystal.rotation.y += dt * 1.6; py.crystal.position.y = py.top + 1.9 + Math.sin(time * 2 + py.i) * 0.18; const hot = sh.state === "idle" && sh.order[sh.next] === py.i; py.crystal.scale.setScalar(hot ? 1 + 0.18 * Math.sin(time * 7) : 1); py.crystal.scale.y *= 1.5 }
+          if (sh.state === "idle" && !sh.lit[py.i] && nd() === py.dim && st.deadT <= 0 && py.group && Math.hypot(p.x - py.x, p.z - py.z) < 3.4 && Math.abs(p.y - py.top) < 3.2) {
+            if (sh.order[sh.next] === py.i) {
+              sh.lit[py.i] = true; sh.next++; setLit(py, true); sfx.play("ready"); fx.spark(new V(py.x, py.top + 2, py.z), 60, new V(0, 1, 0), new THREE.Color(0xffe9a0)); st.kick = 1
+              if (sh.next >= N) startBoss(sh); else banner(`pylon ${sh.next} of ${N}`, 1.4)
+            } else {
+              resetShrine(sh); sfx.play("hurt"); st.shake = 0.8; banner("wrong order: the shrine resets and sends a swarm", 3)
+              summon("swarmer", 7, 9, 15, nd(), 0, Math.PI * 2, p)
+            }
+          }
+        }
+        // the boss was left behind and its chunk unloaded: the shrine re-arms
+        if (sh.state === "boss" && sh.boss && !sh.boss.mesh.parent && !dying.has(sh.boss)) { sh.state = "idle"; sh.boss = null; resetShrine(sh) }
+      }
+    }
+    st.focus = best && bd < 130 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
+    for (const sh of shrines.values()) if (sh.boss && sh.state === "boss") st.bossE = sh.boss
+    if (st.bossE && !(st.bossE.mesh.parent)) st.bossE = null
+    st.bannerT = Math.max(0, st.bannerT - dt)
   }
   const stream = () => {
     const [px, pz] = pc()
@@ -476,20 +602,21 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const fwd = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
     const wish = new V().addScaledVector(fwd, +on("KeyW") - +on("KeyS")).addScaledVector(right, +on("KeyD") - +on("KeyA"))
     if (wish.lengthSq() > 0) wish.normalize()
+    const SP = SPEED * (1 + 0.08 * st.boon.spd)
     const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
     unstick(bx, st.slide ? 1 : 1.8)
 
     const speed = Math.hypot(v.x, v.z)
-    if (!st.slide && st.ground && crouch && speed > 4) { st.slide = true; v.x *= Math.max(1, SPEED * 1.4 / speed); v.z *= Math.max(1, SPEED * 1.4 / speed) }
+    if (!st.slide && st.ground && crouch && speed > 4) { st.slide = true; v.x *= Math.max(1, SP * 1.4 / speed); v.z *= Math.max(1, SP * 1.4 / speed) }
     if (!crouch || (st.ground && speed < 3)) st.slide = false
 
     if (st.ground) {
       if (st.slide) { v.x *= 1 - DT; v.z *= 1 - DT }
-      else for (const a of ["x", "z"] as const) v[a] += Math.max(-60 * DT, Math.min(60 * DT, wish[a] * SPEED - v[a]))
+      else for (const a of ["x", "z"] as const) v[a] += Math.max(-60 * DT, Math.min(60 * DT, wish[a] * SP - v[a]))
     } else {
       v.x += wish.x * 30 * DT; v.z += wish.z * 30 * DT
-      const cap = Math.max(speed, SPEED * 1.1), m = Math.hypot(v.x, v.z)
+      const cap = Math.max(speed, SP * 1.1), m = Math.hypot(v.x, v.z)
       if (m > cap) { v.x *= cap / m; v.z *= cap / m }
     }
     const glide = !st.ground && st.glide && v.y < 0 && st.wallT <= 0
@@ -605,7 +732,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (nd() !== lastNd) { lastNd = nd(); sfx.play("phase") }
     if (st.slide && st.ground && (st.scrapeT -= dt) <= 0) { st.scrapeT = 0.09; sfx.play("whoosh", undefined, 0.25) }
     // walkers cost ~100 draw calls each, so only the ones that are close and in a visible dimension are drawn
-    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = Math.abs(e.dim - d) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 60
+    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = Math.abs(e.dim - d) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < (e.kind === "boss" ? 150 : 60)
     for (const c of chunks.values()) {
       const r = ring(c)
       if (c.detail) c.detail.visible = r <= 1
@@ -664,8 +791,29 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (!dbg.hideHud && weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tCd, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = cd > 0 ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`G ${weapon === "pistol" ? "grenade" : "tnt"}${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}${weapon === "bow" && tn ? `  planted ${tn}` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
-    if (!dbg.hideHud) ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
-    if (!dbg.hideHud) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4) }
+    if (!dbg.hideHud && st.deadT <= 0) {
+      ctx.textAlign = "center"; ctx.shadowColor = "#000"; ctx.shadowBlur = 6
+      const hexs = (c: number) => "#" + c.toString(16).padStart(6, "0")
+      if (st.bossE) {
+        // boss bar: the dimension it stands in, and a warning just before it slips away
+        const e = st.bossE, bw = 460, f = Math.max(0, e.hp) / (e.maxHp ?? e.hp), warn = (e.shiftT ?? 9) < 1.3
+        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(w / 2 - bw / 2 - 3, 52, bw + 6, 14); ctx.fillStyle = hexs(GLOW[e.dim]); ctx.fillRect(w / 2 - bw / 2, 55, bw * f, 8)
+        ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"
+        ctx.fillText(`the warden   in dimension ${e.dim + 1}${warn ? "   shifting!" : ""}${e.dim === nd() ? "   you can hit it" : "   phase to its dimension"}`, w / 2, 45)
+      } else if (st.focus) {
+        const s2 = st.focus; ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"; ctx.fillText("shrine: light the pylons in this order. each exists in one dimension only", w / 2, 45)
+        s2.order.forEach((dm2, k) => { const x = w / 2 + (k - 2) * 40, lit = s2.lit[dm2]; ctx.beginPath(); ctx.arc(x, 72, k === s2.next ? 12 : 9, 0, 7); ctx.fillStyle = lit ? "#fff3c0" : hexs(GLOW[dm2]); if (lit || k === s2.next) ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = hexs(GLOW[dm2]); ctx.stroke(); ctx.fillStyle = lit ? "#222" : "#fff"; ctx.font = "11px ui-monospace, monospace"; ctx.fillText(String(dm2 + 1), x, 76) })
+      } else if (st.target) {
+        const dx = st.target.cx - p.x, dz = st.target.cz - p.z, rel = Math.atan2(dx, -dz) - (-st.yaw) , ang = Math.atan2(Math.sin(rel), Math.cos(rel))
+        ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
+        ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`next shrine ${Math.round(st.targetD)} m`, w / 2, 92)
+      }
+      if (st.bannerT > 0) { ctx.globalAlpha = Math.min(1, st.bannerT); ctx.font = "700 30px ui-sans-serif, system-ui, sans-serif"; ctx.fillStyle = "#fff"; ctx.shadowBlur = 10; ctx.fillText(st.banner, w / 2, h * 0.26); ctx.globalAlpha = 1 }
+      ctx.textAlign = "left"; ctx.shadowBlur = 3
+    }
+    ctx.font = "14px ui-monospace, monospace"
+    if (!dbg.hideHud) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
+    if (!dbg.hideHud) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
     if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
@@ -686,7 +834,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
     if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
     while (acc > DT) { acc -= DT; step() }
-    enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); stream()
+    enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); shrineTick(Math.min(dt, 0.05)); stream()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {
@@ -702,7 +850,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
