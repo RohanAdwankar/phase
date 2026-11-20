@@ -1,6 +1,6 @@
 # phase
 
-First-person parkour shooter: scroll the wheel to phase between five dimensions. Next.js and three.js.
+First-person parkour shooter: scroll the wheel or press Q and E to phase between five dimensions. Next.js and three.js.
 
 ## Run
 

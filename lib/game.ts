@@ -106,7 +106,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     return terrainY(x, z)
   }
   // boulder dome height under (x, z), inflated by the player radius; -Infinity outside it
-  const R = 0.3
+  const R = 0.5
   const domeTop = (e: NonNullable<Box["ell"]>, x: number, z: number) => {
     const a = (x - e.cx) / (e.rx + R), c = (z - e.cz) / (e.rz + R), q = a * a + c * c
     return q >= 1 ? -Infinity : e.cy + e.hh * Math.sqrt(1 - q)
@@ -704,6 +704,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const dp = st.deadT > 0 ? 1 - st.deadT / st.deadLen : 0, dfall = dp * dp
     if (!dbg.freezeVm) cam.rotation.set(st.pitch - 0.5 * dfall, st.yaw, st.roll + 1.25 * dfall)
     if (st.wallT > 0) cam.position.addScaledVector(st.wn, 0.28)
+    for (const b of nearBoxes()) if (b.ell) { // keep the lens outside every boulder, whose mesh bulges past its collider
+      const e = b.ell, dx = cam.position.x - e.cx, dy = cam.position.y - e.cy, dz = cam.position.z - e.cz, q = Math.hypot(dx / (e.rx + 0.6), dy / (e.hh + 0.6), dz / (e.rz + 0.6))
+      if (q < 1 && q > 0) cam.position.set(e.cx + dx / q, e.cy + dy / q, e.cz + dz / q)
+    }
     vmCam.fov = cam.fov; vmCam.aspect = cam.aspect; vmCam.rotation.z = cam.rotation.z; vmCam.updateProjectionMatrix()
     if (dp > 0) cam.position.y -= 1.15 * dfall
     cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 8 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
@@ -829,7 +833,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (!dbg.hideHud || dbg.hideStats) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel or q e phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
