@@ -1,12 +1,10 @@
 import * as THREE from "three"
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js"
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js"
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js"
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js"
-import { loadSky } from "./assets"
+import { makePost } from "./post"
+import { loadSky, loadPistol } from "./assets"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
-import { makeViewmodel, Enemy, N } from "./actors"
+import { makeViewmodel, Enemy } from "./actors"
+import { N } from "./materials"
 import { buildSegment, disposeSegment, loadWorld, Box, Seg, HW, SEG } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -32,17 +30,24 @@ const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE
   return t0
 }
 
-export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement) {
+export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal) {
+  if (signal.aborted) return () => {}
+  const ctx = hud.getContext("2d")!
+  hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
+  const [world, sky, pistol] = await Promise.all([loadWorld(), loadSky(), loadPistol()])
+  if (signal.aborted) return () => {}
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
   const scene = new THREE.Scene()
-  const ctx = hud.getContext("2d")!
-  hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
-  const [world, sky] = await Promise.all([loadWorld(), loadSky()])
-  scene.background = sky.tex; scene.environment = sky.tex; scene.environmentIntensity = 0.9
-  const az = (v: THREE.Vector3) => Math.atan2(v.z, v.x), spin = az(sky.sun) - az(new THREE.Vector3(-0.35, 0, -0.86))
-  scene.backgroundRotation.y = spin; scene.environmentRotation.y = spin
+  scene.background = sky.tex; scene.environmentIntensity = 1
+  const az = (v: THREE.Vector3) => Math.atan2(v.z, v.x), spin = az(sky.sun) - az(new THREE.Vector3(-0.9, 0, -0.3))
+  scene.backgroundRotation.y = spin
+  // the sky has nothing below the horizon, so bake a grassy ground into the reflection environment too
+  const envScene = new THREE.Scene(); envScene.background = sky.tex; envScene.backgroundRotation.y = spin
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x6b7a3a).multiplyScalar(0.7) }))
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -1; envScene.add(ground)
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(envScene, 0.02).texture
   const SUN = sky.sun.clone().applyEuler(scene.backgroundRotation)
   scene.fog = new THREE.FogExp2(0xbdd0e4, 0.0034)
   const cam = new THREE.PerspectiveCamera(85, 1, 0.05, 1000)
@@ -53,11 +58,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 200 })
   scene.add(sun, sun.target)
 
-  const composer = new EffectComposer(renderer)
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.6, 0.95)
-  composer.addPass(new RenderPass(scene, cam)); composer.addPass(bloom); composer.addPass(new OutputPass())
+  const post = makePost(renderer, scene, cam)
 
-  const fx = makeFx(scene), vm = makeViewmodel(flashTexture())
+  const fx = makeFx(scene), vm = makeViewmodel(flashTexture(), pistol)
   cam.add(vm.root)
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
@@ -100,7 +103,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.quaternion.setFromUnitVectors(new V(0, 1, 0), b.clone().sub(a).normalize())
     scene.add(mesh); beams.push({ mesh, life })
   }
-  const hitBox = (e: Enemy) => [new V(e.pos.x - 0.95, 0, e.pos.z - 0.95), new V(e.pos.x + 0.95, 2.5, e.pos.z + 0.95)] as const
+  const hitBox = (e: Enemy) => [new V(e.pos.x - 1.15, 0, e.pos.z - 1.15), new V(e.pos.x + 1.15, 2.9, e.pos.z + 1.15)] as const
 
   const shoot = () => {
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
@@ -179,9 +182,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const s of nearSegs()) for (const e of s.enemies) {
       const dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.hypot(dx, dz)
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
-      if (dist < 70 && dist > 9) {
+      const moving = dist < 70 && dist > 9
+      e.update(DT, moving, time * 5)
+      if (moving) {
         e.pos.x = Math.max(-HW + 2, Math.min(HW - 2, e.pos.x + dx / dist * 2.5 * DT)); e.pos.z += dz / dist * 2.5 * DT; e.mesh.position.set(e.pos.x, 0, e.pos.z)
-        e.legs.forEach((l, k) => { l.rotation.x = Math.sin(time * 6 + k * 1.6) * 0.28; l.position.y = 1.45 + Math.max(0, Math.sin(time * 6 + k * 1.6)) * 0.12 })
       }
       if (e.dim === nd() && dist < 45 && (e.fireT -= DT) <= 0) {
         e.fireT = 0.9 + Math.random() * 0.7
@@ -206,7 +210,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
     cam.rotation.set(st.pitch, st.yaw, st.roll)
     cam.fov += (80 + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
-    vm.root.position.set(0.14 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.15 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.34 + st.kick * 0.035)
+    vm.root.position.set(0.14 + st.lookX * 0.4 + Math.cos(st.bob * 0.65) * 0.006, -0.13 + st.lookY * 0.4 + Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0), -0.32 + st.kick * 0.035)
     vm.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8, -st.lookX * 0.8, st.slide ? -0.12 : 0)
     vm.flash.material.opacity = st.flash > 0 ? 1 : 0; vm.light.intensity = st.flash > 0 ? 6 : 0
     sun.position.set(p.x + SUN.x * 90, p.y + SUN.y * 90, p.z + SUN.z * 90); sun.target.position.copy(p)
@@ -221,7 +225,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
     fx.update(dt, cam.position)
-    composer.render()
+    post.update(SUN, d, time); post.composer.render()
 
     ctx.clearRect(0, 0, w, h)
     if (st.hurt > 0) { const g = ctx.createRadialGradient(w / 2, h / 2, h * 0.45, w / 2, h / 2, h * 0.95); g.addColorStop(0, "rgba(180,20,10,0)"); g.addColorStop(1, `rgba(180,20,10,${st.hurt * 0.8})`); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h) }
@@ -244,7 +248,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); hud.width = w * dpr; hud.height = h * dpr
-      cam.aspect = w / h; cam.updateProjectionMatrix(); composer.setPixelRatio(dpr); composer.setSize(w, h)
+      cam.aspect = w / h; cam.updateProjectionMatrix(); post.resize(w, h, dpr)
     }
     while (acc > DT) { acc -= DT; step() }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
@@ -275,7 +279,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
   return () => {
-    cancelAnimationFrame(raf); composer.dispose(); renderer.dispose()
+    cancelAnimationFrame(raf); post.composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)
     removeEventListener("wheel", wh); canvas.removeEventListener("click", click)

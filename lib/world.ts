@@ -28,7 +28,7 @@ export const loadWorld = async () => {
     return cache.get(key)!
   }
   const hill = splatMaterial(grass, rock, { scaleB: 0.5, attr: true, tint: 0xd8d8d0 }); hill.transparent = false
-  return { grass, dry, rock, cliff, olive, metal, lane, body, rockMat, models, matFor, hill, foe: makeFoeMats() }
+  return { grass, dry, rock, cliff, olive, metal, lane, body, rockMat, models, matFor, hill, foe: makeFoeMats(olive, metal) }
 }
 export type World = Awaited<ReturnType<typeof loadWorld>>
 
@@ -133,7 +133,7 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     if (k > 0.35 && k <= 0.6) {
       const pos = new V((rng() - 0.5) * (HW * 2 - 8), 0, z1 + 5 + rng() * (SEG - 10)), wk = walker(w.foe, dim)
       wk.mesh.position.set(pos.x, 0, pos.z); s.group.add(wk.mesh)
-      s.enemies.push({ mesh: wk.mesh, legs: wk.legs, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng() })
+      s.enemies.push({ mesh: wk.mesh, update: wk.update, turret: wk.turret, pos, dim, hp: 12, fireT: 1 + rng() })
     }
   }
 
