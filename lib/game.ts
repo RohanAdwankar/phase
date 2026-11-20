@@ -592,8 +592,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         bow.root.position.set(0.15 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.2 + lift + bobY, -0.7 + st.kick * 0.03 + st.draw * 0.05)
         bow.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
       } else {
-        pistol.root.position.set(0.27 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.22 + lift + bobY, -0.6 + st.kick * 0.03)
-        pistol.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.12 - st.lookX * 0.8, st.slide ? -0.12 : 0)
+        pistol.root.position.set(0.37 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.3 + lift + bobY, -0.56 + st.kick * 0.03)
+        pistol.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.06, 0.2 - st.lookX * 0.8, st.slide ? -0.12 : 0)
       }
     }
     bow.setDraw(st.draw, st.fireT <= 0 || st.draw > 0)
