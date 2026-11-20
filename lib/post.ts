@@ -39,18 +39,20 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
     fragmentShader: frag,
   })
   composer.addPass(new RenderPass(scene, cam))
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.12, 0.5, 2.2))
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.12, 0.5, 2.2)
+  composer.addPass(bloom)
   composer.addPass(grade)
   composer.addPass(new OutputPass())
   composer.addPass(new FXAAPass())
   const tmp = new THREE.Vector3()
   return {
     composer,
-    update(sunDir: THREE.Vector3, d: number, time: number) {
+    update(sunDir: THREE.Vector3, d: number, time: number, calm = 0) {
+      bloom.strength = 0.12 * (1 - calm * 0.7)
       tmp.copy(cam.position).addScaledVector(sunDir, 1000).project(cam)
       const behind = new THREE.Vector3().copy(sunDir).dot(cam.getWorldDirection(new THREE.Vector3())) < 0
       grade.uniforms.uSun.value.set(tmp.x * 0.5 + 0.5, tmp.y * 0.5 + 0.5)
-      grade.uniforms.uSunVis.value = behind ? 0 : Math.max(0, 1 - Math.hypot(tmp.x, tmp.y) * 0.35)
+      grade.uniforms.uSunVis.value = (behind ? 0 : Math.max(0, 1 - Math.hypot(tmp.x, tmp.y) * 0.35)) * (1 - calm)
       grade.uniforms.uTime.value = time % 10
       grade.uniforms.uPeek.value = Math.min(1, Math.abs(d - Math.round(d)) * 2)
       const i = Math.min(GRADE.length - 2, Math.floor(d)), t = d - i

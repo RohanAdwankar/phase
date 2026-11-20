@@ -162,7 +162,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       st.hit = 0.12; hit.hitT = 0.14; fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if (--hit.hp <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
-        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; hit.mesh.removeFromParent(); st.kills++
+        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++
         for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
       }
     } else if (tMin < 150) { fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
@@ -176,7 +176,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const cutAt = (e: Enemy, dmg: number, shove: number) => {
     const dx = e.pos.x - st.pos.x, dz = e.pos.z - st.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz)), c = new V(e.pos.x, e.pos.y + 1.7, e.pos.z)
     e.hp -= dmg; e.hitT = 0.2; e.pos.x += dx / dist * shove; e.pos.z += dz / dist * shove
-    fx.spark(c, 30, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(c, 1, DUST, 0.6)
+    fx.spark(c, 12, new V(-dx / dist, 0.5, -dz / dist), ORANGE); fx.smoke(c, 1, DUST, 0.6)
     if (e.hp <= 0) killWalker(e)
   }
   const swingCut = () => {
@@ -203,7 +203,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), dist = 5 + 16 * charge, dur = 0.26 + 0.2 * charge
     st.surge = 1; st.surgeLen = dur; st.surgeSpd = dist / dur; st.surgeHit.clear()
     st.sdir.copy(f); st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
-    fx.spark(new V(st.pos.x, st.pos.y + 0.3, st.pos.z), 40, f.clone().negate(), DUST); fx.smoke(new V(st.pos.x, st.pos.y + 0.2, st.pos.z), 5, DUST, 1.2)
+    { const back = new V(st.pos.x - f.x * 3, st.pos.y + 0.2, st.pos.z - f.z * 3); fx.spark(back, 8, f.clone().negate(), DUST); fx.smoke(back, 3, DUST, 1.2) }
   }
   const killWalker = (e: Enemy) => {
     const c = e.pos.clone().setY(e.pos.y + 1.6)
@@ -363,7 +363,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
     if (!dbg.freezeVm) cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
     if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
-    cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 18 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
+    cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 8 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
       const sway = st.lookX * 0.4, lift = st.lookY * 0.4, bobY = Math.abs(Math.sin(st.bob * 1.3)) * 0.006 - (st.slide ? 0.03 : 0)
       if (weapon === "sword") {
@@ -383,6 +383,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         swordPivot.position.set(0.24 + sway + px, -0.34 + bobY + py, -0.5 + pz)
         swordPivot.rotation.set(pitch + st.lookY * 0.8, yaw - st.lookX * 0.8, roll + (st.slide ? -0.12 : 0), "YXZ")
         sword.root.position.set(0, 0.1, 0); sword.root.rotation.set(0, 0, 0)
+        // the spinning blade sweeps through every angle to the sun, so take the sky reflection off it for the whole dash
+        for (const m of sword.shiny) m.envMapIntensity += ((st.surge > 0 ? 0.02 : m === sword.shiny[2] ? 0.5 : 0.35) - m.envMapIntensity) * Math.min(1, dt * 20)
       } else if (weapon === "bow") {
         bow.root.position.set(0.15 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.2 + lift + bobY, -0.7 + st.kick * 0.03 + st.draw * 0.05)
         bow.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.03, 0.3 - st.lookX * 0.8, st.slide ? -0.12 : 0)
@@ -415,7 +417,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
     boom.intensity = Math.max(0, boom.intensity - dt * 300)
     fx.update(dt, cam.position)
-    post.update(SUN, d, time); post.composer.render()
+    calm += ((st.surge > 0 ? 1 : 0) - calm) * Math.min(1, dt * 14); post.update(SUN, d, time, calm); post.composer.render()
 
     ctx.clearRect(0, 0, w, h)
     for (let i = hurts.length - 1; i >= 0; i--) {
@@ -440,6 +442,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
 
   let raf = 0, last = performance.now(), acc = 0
+  let calm = 0
   let manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
   const tick = (dt: number) => {
     acc += dt
@@ -468,7 +471,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()

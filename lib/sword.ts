@@ -108,7 +108,8 @@ export const makeSword = (armor: PBR) => {
   add(rbox(0.07, 0.05, 0.06, 0.014), brass, new V(0.006, y0 - 0.02, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.12)))
   add(rbox(0.02, 0.07, 0.07, 0.01), brass, new V(-0.03, y0 - 0.03, 0))
   add(rbox(0.05, 0.05, 0.06, 0.014), brass, new V(0.0, -0.28, 0.0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.35)))
+  const shiny = [steelEdge, blackSteel, brass]
   const tip = spine(1).add(new V(0, y0, 0))
   root.scale.setScalar(1)
-  return { root, tip }
+  return { root, tip, shiny }
 }
