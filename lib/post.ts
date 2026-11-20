@@ -31,7 +31,7 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`
 
-export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.PerspectiveCamera) => {
+export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.PerspectiveCamera, vmScene: THREE.Scene, vmCam: THREE.PerspectiveCamera) => {
   const composer = new EffectComposer(renderer)
   const grade = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2() }, uSunVis: { value: 0 }, uTime: { value: 0 }, uAspect: { value: 1 }, uPeek: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) } },
@@ -39,6 +39,8 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
     fragmentShader: frag,
   })
   composer.addPass(new RenderPass(scene, cam))
+  // the held weapon and arm render in their own pass on a cleared depth buffer, so they never poke into rock when you hug a wall
+  const vmPass = new RenderPass(vmScene, vmCam); vmPass.clear = false; vmPass.clearDepth = true; composer.addPass(vmPass)
   const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.12, 0.5, 2.2)
   composer.addPass(bloom)
   composer.addPass(grade)

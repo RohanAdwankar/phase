@@ -68,16 +68,20 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   renderer.shadowMap.autoUpdate = false
   scene.add(sun, sun.target)
 
-  const post = makePost(renderer, scene, cam)
+  // viewmodel scene: same lighting and reflections as the world, its own camera
+  const vmScene = new THREE.Scene(), vmCam = new THREE.PerspectiveCamera(70, 1, 0.02, 20); vmScene.add(vmCam)
+  vmScene.environment = scene.environment; vmScene.environmentIntensity = 0.9
+  vmScene.add(new THREE.HemisphereLight(0xcfe0ff, 0x7a6a8a, 1.9)); { const vs = new THREE.DirectionalLight(0xfff0d2, 2.4); vs.position.set(-0.4, 1, 0.5); vmScene.add(vs) }
+  const post = makePost(renderer, scene, cam, vmScene, vmCam)
 
-  const dbg = { freezeVm: false, hideHint: false, hideHud: false, lockScale: 0 }
+  const dbg = { freezeVm: false, hideHint: false, hideHud: false, hideStats: false, lockScale: 0 }
   const sfx = createSfx()
   const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), world.metal)
   const sword = makeSword(world.metal)
   type Weapon = "pistol" | "bow" | "sword"
   let weapon: Weapon = "pistol"
   const swordPivot = new THREE.Group(); swordPivot.position.set(0, -0.4, 0); swordPivot.add(sword.root); swordPivot.visible = false
-  cam.add(bow.root, pistol.root, swordPivot); bow.root.visible = false
+  vmCam.add(bow.root, pistol.root, swordPivot); bow.root.visible = false
   const swap = (w: Weapon) => { if (w === weapon) return; sfx.draw.stop(); sfx.play("tick"); weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
@@ -86,7 +90,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -202,7 +206,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const t = rayBox(o, dir, ...hitBox(e))
       if (t < tMin) { tMin = t; hit = e }
     }
-    const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V())
+    const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V()).applyMatrix4(cam.matrixWorld)
     if (hit) {
       st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if ((hit.hp -= dm()) <= 0) {
@@ -613,7 +617,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
     if (st.ground) {
       if (st.slide) { v.x *= 1 - DT; v.z *= 1 - DT }
-      else for (const a of ["x", "z"] as const) v[a] += Math.max(-60 * DT, Math.min(60 * DT, wish[a] * SP - v[a]))
+      else if (!(st.hopT > 0 && (st.jumpBuf > 0 || st.jump))) for (const a of ["x", "z"] as const) v[a] += Math.max(-60 * DT, Math.min(60 * DT, wish[a] * SP - v[a]))
     } else {
       v.x += wish.x * 30 * DT; v.z += wish.z * 30 * DT
       const cap = Math.max(speed, SP * 1.1), m = Math.hypot(v.x, v.z)
@@ -623,13 +627,20 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (glide) { v.y = Math.max(v.y, -2); v.x += fwd.x * 12 * DT; v.z += fwd.z * 12 * DT }
 
     st.coyote = st.ground ? 0.1 : st.coyote - DT
-    if (st.jump) {
-      st.jump = false
+    // a jump pressed slightly before landing is buffered, and jumping again right after touching down is a bunny hop: it keeps your speed and adds a little
+    if (st.jump) { st.jump = false; st.jumpBuf = 0.12; st.jumpFresh = true } else st.jumpFresh = false
+    st.jumpBuf -= DT; st.hopT -= DT
+    if (st.jumpBuf > 0) {
       if (st.ground || st.coyote > 0) {
-        if (crouch) { const dir = wish.lengthSq() ? wish : fwd; v.set(dir.x * 16, 9, dir.z * 16) } else v.y = 8
-        st.jumps = 1; st.slide = false; st.coyote = 0; sfx.play("jump")
-      } else if (st.wallT > 0) { v.addScaledVector(st.wn, 9); v.y = 9; st.wallT = 0; st.wallCD = 0.3; st.jumps = 1; sfx.play("jump2") }
-      else if (st.jumps < 2) { v.y = 7.5; st.jumps = 2; sfx.play("jump2") }
+        if (crouch) { const dir = wish.lengthSq() ? wish : fwd; v.set(dir.x * 16, 9, dir.z * 16) }
+        else {
+          v.y = 8
+          const sp0 = Math.hypot(v.x, v.z)
+          if (st.hopT > 0 && sp0 > 3) { const gain = Math.min(SP * 1.8, sp0 + 1.1) / sp0; v.x *= gain; v.z *= gain; st.hops++ } else st.hops = 0
+        }
+        st.jumps = 1; st.slide = false; st.coyote = 0; st.jumpBuf = 0; sfx.play("jump")
+      } else if (st.jumpFresh && st.wallT > 0) { v.addScaledVector(st.wn, 9); v.y = 9; st.wallT = 0; st.wallCD = 0.3; st.jumps = 1; st.jumpBuf = 0; sfx.play("jump2") }
+      else if (st.jumpFresh && st.jumps < 2) { v.y = 7.5; st.jumps = 2; st.jumpBuf = 0; sfx.play("jump2") }
     }
 
     if (st.wallT > 0 && (!on("KeyW") || st.contact <= 0)) { st.wallT = 0; st.wallCD = 0.25 }
@@ -648,7 +659,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     hitN.set(0, 0, 0)
     const nx = move("x", h, bx), nz = move("z", h, bx), ny = move("y", h, bx)
     st.ground = ny > 0
-    if (st.ground && !wasGround && vyBefore < -5) sfx.play("land", undefined, Math.min(1.3, -vyBefore / 12))
+    if (st.ground && !wasGround) { st.hopT = 0.14; if (vyBefore < -5) sfx.play("land", undefined, Math.min(1.3, -vyBefore / 12)) }
     if (st.ground && st.wallT <= 0) st.jumps = 0
     st.contact = nx || nz ? 0.2 : st.contact - DT
     // running into a rock face at speed latches onto it, from the ground or the air
@@ -692,6 +703,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.shake = Math.max(0, st.shake - dt * 2.2); cam.position.set(p.x + (Math.random() - 0.5) * st.shake * 0.5, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10) + (Math.random() - 0.5) * st.shake * 0.5, p.z)
     const dp = st.deadT > 0 ? 1 - st.deadT / st.deadLen : 0, dfall = dp * dp
     if (!dbg.freezeVm) cam.rotation.set(st.pitch - 0.5 * dfall, st.yaw, st.roll + 1.25 * dfall)
+    if (st.wallT > 0) cam.position.addScaledVector(st.wn, 0.28)
+    vmCam.fov = cam.fov; vmCam.aspect = cam.aspect; vmCam.rotation.z = cam.rotation.z; vmCam.updateProjectionMatrix()
     if (dp > 0) cam.position.y -= 1.15 * dfall
     cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 8 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
@@ -812,8 +825,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       ctx.textAlign = "left"; ctx.shadowBlur = 3
     }
     ctx.font = "14px ui-monospace, monospace"
-    if (!dbg.hideHud) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
-    if (!dbg.hideHud) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
+    if (!dbg.hideHud && !dbg.hideStats) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
+    if (!dbg.hideHud || dbg.hideStats) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
     if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
