@@ -4,7 +4,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js"
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js"
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js"
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js"
-import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js"
+import { FXAAPass } from "three/examples/jsm/postprocessing/FXAAPass.js"
 
 // linear multipliers that give each dimension its own colour grade
 export const GRADE = [[1, 1, 1], [1.12, 1.02, 0.8], [0.84, 1.06, 1.08], [1.14, 0.9, 0.78], [0.96, 0.9, 1.16]]
@@ -17,9 +17,9 @@ void main(){
   vec2 ca = c * edge * 0.004;
   vec3 col = vec3(texture2D(tDiffuse, vUv + ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - ca).b);
   // sun shafts: radial blur of the bright parts of the frame toward the sun
-  vec3 rays = vec3(0.0); vec2 d = (uSun - vUv) / 28.0, p = vUv; float w = 1.0;
-  for (int i = 0; i < 28; i++) { p += d; vec3 s = texture2D(tDiffuse, p).rgb; rays += max(s - 1.1, 0.0) * w; w *= 0.93; }
-  col += rays * vec3(1.0, 0.86, 0.62) * 0.085 * uSunVis;
+  vec3 rays = vec3(0.0); vec2 d = (uSun - vUv) / 12.0, p = vUv; float w = 1.0;
+  for (int i = 0; i < 12; i++) { p += d; vec3 s = texture2D(tDiffuse, p).rgb; rays += max(s - 1.1, 0.0) * w; w *= 0.88; }
+  col += rays * vec3(1.0, 0.86, 0.62) * 0.11 * uSunVis;
   float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
   col = mix(vec3(l), col, 1.1);
   col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.07, 1.02, 0.92), smoothstep(0.0, 1.5, l));
@@ -40,7 +40,7 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
   composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.22, 0.7, 1.0))
   composer.addPass(grade)
   composer.addPass(new OutputPass())
-  const smaa = new SMAAPass(); composer.addPass(smaa)
+  composer.addPass(new FXAAPass())
   const tmp = new THREE.Vector3()
   return {
     composer,

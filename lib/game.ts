@@ -55,13 +55,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   cam.rotation.order = "YXZ"; scene.add(cam)
   scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x6a5a38, 1.15))
   const sun = new THREE.DirectionalLight(0xfff0d2, 3.4)
-  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04
-  Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 200 })
+  sun.castShadow = true; sun.shadow.mapSize.set(1536, 1536); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04
+  Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 200 })
+  renderer.shadowMap.autoUpdate = false
   scene.add(sun, sun.target)
 
   const post = makePost(renderer, scene, cam)
 
-  const dbg = { freezeVm: false }
+  const dbg = { freezeVm: false, hideHint: false }
   const fx = makeFx(scene), vm = makeViewmodel(flashTexture(), pistol, world.metal)
   cam.add(vm.root)
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
@@ -223,7 +224,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     uPlayer.value.copy(p)
     for (const [i, s] of segs) {
       const d0 = Math.abs(i - segAt())
-      s.detail.visible = d0 <= 2; s.trees.hi.forEach(o => (o.visible = d0 <= 1)); s.trees.lo.forEach(o => (o.visible = d0 > 1))
+      s.detail.visible = d0 <= 1; s.trees.hi.forEach(o => (o.visible = d0 <= 1)); s.trees.lo.forEach(o => (o.visible = d0 > 1))
     }
     for (let i = 0; i < N; i++) {
       const a = Math.max(0, 1 - Math.abs(d - i) * 1.1), solid = i === nd()
@@ -245,29 +246,35 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual) ctx.fillText("click to play. wasd move, mouse aim, click shoot, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click shoot, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
-  let manual = false
+  let manual = false, scale = 1, ema = 1 / 60, frames = 0
   const tick = (dt: number) => {
     acc += dt
-    const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      renderer.setPixelRatio(dpr); renderer.setSize(w, h, false); hud.width = w * dpr; hud.height = h * dpr
-      cam.aspect = w / h; cam.updateProjectionMatrix(); post.resize(w, h, dpr)
+    const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight, rp = dpr * scale
+    if (canvas.width !== Math.round(w * rp) || canvas.height !== Math.round(h * rp)) {
+      renderer.setPixelRatio(rp); renderer.setSize(w, h, false); hud.width = w * dpr; hud.height = h * dpr
+      cam.aspect = w / h; cam.updateProjectionMatrix(); post.resize(w, h, rp)
     }
+    renderer.shadowMap.needsUpdate = frames++ % 3 === 0
     while (acc > DT) { acc -= DT; step() }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {
     raf = requestAnimationFrame(loop)
     const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now
-    if (!manual) tick(dt)
+    if (!manual) {
+      // dynamic resolution: trade pixels for frame rate so weak GPUs still hold a playable rate
+      ema = ema * 0.92 + dt * 0.08
+      if (frames % 20 === 0) scale = Math.max(0.7, Math.min(1, scale + (ema > 1 / 45 ? -0.1 : ema < 1 / 58 ? 0.05 : 0)))
+      tick(dt)
+    }
   }
   gen(0); gen(1); gen(2)
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, vm, dbg, cam, scene, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, segs, genMs, keys, vm, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()

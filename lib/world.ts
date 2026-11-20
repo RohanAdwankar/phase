@@ -11,7 +11,7 @@ export type Seg = { group: THREE.Group; detail: THREE.Group; trees: { hi: THREE.
 
 const TINT = [0xffffff, 0xf2e2a0, 0xc4e4b4, 0xeccaa0, 0xdce2ff]
 const MODELS = ["namaqualand_boulder_02", "namaqualand_boulder_03", "namaqualand_boulder_04", "namaqualand_boulder_05", "boulder_01", "namaqualand_cliff_01", "namaqualand_cliff_02", "mountainside", "coastal_cliff_02",
-  "fir_sapling", "fir_sapling_lo", "pine_sapling_small", "pine_sapling_lo", "fir_sapling_medium", "fir_sapling_medium_lo", "shrub_02", "shrub_03", "fern_02", "grass_medium_01", "grass_medium_02", "dandelion_01", "celandine_01", "periwinkle_plant", "moss_01", "dry_branches_medium_01", "tree_stump_01"]
+  "namaqualand_cliff_01_lo", "namaqualand_cliff_02_lo", "mountainside_lo", "coastal_cliff_02_lo", "fir_sapling", "fir_sapling_lo", "pine_sapling_small", "pine_sapling_lo", "fir_sapling_medium", "fir_sapling_medium_lo", "shrub_02", "shrub_03", "fern_02", "grass_medium_01", "grass_medium_02", "dandelion_01", "celandine_01", "periwinkle_plant", "moss_01", "dry_branches_medium_01", "tree_stump_01"]
 
 export const loadWorld = async () => {
   const [grass, dry, rock, cliff, olive, metal, forest, scree] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "cliff_side", "green_metal_rust", "metal_plate", "forrest_ground_01", "dry_ground_rocks"].map(loadPBR))
@@ -45,7 +45,7 @@ const triUV = (geo: THREE.BufferGeometry, scale = 5) => {
 }
 
 const blade = (() => {
-  const rows = [[0, 0.028], [0.15, 0.025], [0.32, 0.019], [0.52, 0.011], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
+  const rows = [[0, 0.028], [0.26, 0.022], [0.5, 0.013], [0.74, 0]], pos: number[] = [], col: number[] = [], idx: number[] = []
   const lo = new THREE.Color(0x1d3a0e), mid = new THREE.Color(0x5a8a24), hi = new THREE.Color(0xc4d870)
   rows.forEach(([y, w], r) => {
     const c = y < 0.35 ? lo.clone().lerp(mid, y / 0.35) : mid.clone().lerp(hi, (y - 0.35) / 0.4), z = y * y * 0.7
@@ -74,7 +74,7 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     const model = w.models[id], out: THREE.InstancedMesh[] = []
     model.parts.forEach((p, k) => {
       const im = new THREE.InstancedMesh(p.geo, w.matFor(dim, id, k, p.mat), ms.length)
-      ms.forEach((m, j) => im.setMatrixAt(j, m)); im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false; parent.add(im); out.push(im)
+      ms.forEach((m, j) => im.setMatrixAt(j, m)); im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); parent.add(im); out.push(im)
     })
     return out
   }
@@ -99,13 +99,13 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
       top.computeVertexNormals()
       const uv = top.attributes.uv; for (let n = 0; n < uv.count; n++) uv.setXY(n, uv.getX(n) * HW * 2 / 4, uv.getY(n) * len / 4)
       mesh(top, w.lane[dim], 0, 0.002, zm, false)
-      const count = Math.round(len * HW * 2 * 45), g = new THREE.InstancedBufferGeometry()
-      g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a); g.instanceCount = count
+      const count = Math.round(len * HW * 2 * 32), g = new THREE.InstancedBufferGeometry()
+      g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a); g.instanceCount = count; g.boundingSphere = new THREE.Sphere(new V(0, 0.4, zm), Math.hypot(HW, len / 2) + 2)
       const gm = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim]); track(dim, gm); s.grass.push(gm)
-      const gmesh = new THREE.Mesh(g, gm); gmesh.frustumCulled = false; gmesh.userData.dim = dim; add(gmesh, s.detail)
-      const g2 = new THREE.InstancedBufferGeometry(); g2.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g2.setAttribute(name, a); g2.instanceCount = Math.round(len * HW * 2 * 70)
+      const gmesh = new THREE.Mesh(g, gm); gmesh.userData.dim = dim; add(gmesh, s.detail)
+      const g2 = new THREE.InstancedBufferGeometry(); g2.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g2.setAttribute(name, a); g2.instanceCount = Math.round(len * HW * 2 * 45); g2.boundingSphere = g.boundingSphere
       const gm2 = grassMaterial(new THREE.Vector4(-HW, za, HW * 2, len), TINT[dim], true); track(dim, gm2); s.grass.push(gm2)
-      const under = new THREE.Mesh(g2, gm2); under.frustumCulled = false; add(under, s.detail)
+      const under = new THREE.Mesh(g2, gm2); add(under, s.detail)
     }
 
     // cliffs
@@ -115,7 +115,8 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
         const id = pick("namaqualand_cliff_01", "namaqualand_cliff_02", "mountainside", "coastal_cliff_02"), m = w.models[id], sz = m.box.getSize(new V())
         const rot = sz.x > sz.z ? Math.PI / 2 : 0, long = Math.max(sz.x, sz.z), thick = Math.min(sz.x, sz.z)
         const sc = Math.min(SEG * 0.55 / long, 16 / sz.y), len = long * sc
-        place(id, dim, [mat4(side * (HW + 0.6 + thick * sc / 2), -1, zz + len / 2, rot + (side > 0 ? 0 : Math.PI), sc, sc * (0.9 + rng() * 0.3), sc)], s.group)
+        const cm = [mat4(side * (HW + 0.6 + thick * sc / 2), -1, zz + len / 2, rot + (side > 0 ? 0 : Math.PI), sc, sc * (0.9 + rng() * 0.3), sc)]
+        s.trees.hi.push(...place(id, dim, cm, s.group)); s.trees.lo.push(...place(id + "_lo", dim, cm, s.group))
         zz += len * 0.85
       }
       blob(dim, side * (HW - 1.2), zc, 7, SEG * 1.1)
@@ -124,11 +125,11 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
 
     // ground cover
     const spots = (n: number) => [...Array(n)].map(() => new V((rng() - 0.5) * (HW * 2 - 2), 0, z1 + rng() * SEG)).filter(p => onFloor(p.x, p.z))
-    const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, 0, p.z, rng() * 6.28, lo + rng() * (hi - lo))))
+    const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(p => mat4(p.x, 0, p.z, rng() * 6.28, lo + rng() * (hi - lo))), s.detail, false)
     scatter("fern_02", 12, 0.7, 1.4); scatter("dandelion_01", 30, 0.8, 1.3); scatter("celandine_01", 70, 0.8, 1.5); scatter("periwinkle_plant", 14, 0.8, 1.3)
     scatter("grass_medium_01", 70, 0.8, 1.6); scatter("grass_medium_02", 60, 0.8, 1.6); scatter("moss_01", 20, 0.8, 1.6)
     scatter("shrub_02", 8, 0.9, 1.7); scatter("shrub_03", 5, 0.9, 1.6); scatter("dry_branches_medium_01", 2, 0.6, 1.1); scatter("tree_stump_01", 1, 0.8, 1.3)
-    place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, -0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)))
+    place(pick("namaqualand_boulder_02", "namaqualand_boulder_04"), dim, spots(8).map(p => mat4(p.x, -0.05, p.z, rng() * 6.28, 0.12 + rng() * 0.3)), s.detail, false)
 
     if (k > 0.6) for (let j = 0; j < 3; j++) {
       const id = pick("namaqualand_boulder_03", "namaqualand_boulder_05", "boulder_01"), m = w.models[id], sz = m.box.getSize(new V())
@@ -162,8 +163,8 @@ export const buildSegment = (scene: THREE.Scene, w: World, i: number, rng: () =>
     for (let n = 0; n < p.count; n++) rockW.push(Math.min(1, Math.max(0, (1 - nrm.getY(n) - 0.2) * 4 + (fbm(p.getX(n) * 0.1, p.getZ(n) * 0.1, 3) - 0.62))))
     geo.setAttribute("aRock", new THREE.Float32BufferAttribute(rockW, 1))
     mesh(geo, w.hill, 0, 0, 0, false)
-    for (const [hi, lo] of [["fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
-      const ms = [...Array(16)].map(() => {
+    for (const [hi, lo] of [["namaqualand_cliff_01_lo", "namaqualand_cliff_02_lo", "mountainside_lo", "coastal_cliff_02_lo", "fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
+      const ms = [...Array(10)].map(() => {
         const wx = side * (HW + 16 + rng() * 70), wz = zc + (rng() - 0.5) * SEG, sz = w.models[hi].box.getSize(new V()), sc = (10 + rng() * 9) / sz.y
         return mat4(wx, hillY(wx, wz) - 0.3, wz, rng() * 6.28, sc)
       })
