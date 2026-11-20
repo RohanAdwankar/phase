@@ -108,6 +108,17 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const p = st.pos, c = [b.max.x - (p.x - 0.3), p.x + 0.3 - b.min.x, b.max.z - (p.z - 0.3), p.z + 0.3 - b.min.z, b.max.y - p.y, p.y + h - b.min.y], k = c.indexOf(Math.min(...c))
     if (k === 0) p.x = b.max.x + 0.3; else if (k === 1) p.x = b.min.x - 0.3; else if (k === 2) p.z = b.max.z + 0.3; else if (k === 3) p.z = b.min.z - 0.3; else if (k === 4) p.y = b.max.y; else p.y = b.min.y - h
   }
+  // phasing can leave the player inside rock. Launch them straight up out of it (or sideways out of a very tall wall) so a dimension change never traps them.
+  const unstick = (bx: Box[], h: number) => {
+    let hit = false
+    for (let n = 0; n < 6; n++) {
+      const b = bx.find(q => over(q, h)); if (!b) break
+      hit = true
+      const up = b.max.y - st.pos.y + 0.4
+      if (up <= 8) { st.pos.y = b.max.y + 0.05; st.vel.y = Math.max(st.vel.y, 11 + up * 0.8) } else { pushOut(b, h); st.vel.y = Math.max(st.vel.y, 6) }
+    }
+    if (hit) { st.ground = false; st.jumps = 0; fx.spark(new V(st.pos.x, st.pos.y + 0.3, st.pos.z), 36, new V(0, 1, 0), DUST); fx.smoke(new V(st.pos.x, st.pos.y, st.pos.z), 4, DUST, 1) }
+  }
   let checkpoint = { pos: st.pos.clone(), dim: 2 }, cpT = 0
   const respawn = () => {
     st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = 100; st.wallT = 0
@@ -273,7 +284,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (wish.lengthSq() > 0) wish.normalize()
     const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
-    for (const b of bx) if (over(b, st.slide ? 1 : 1.8)) pushOut(b, st.slide ? 1 : 1.8)
+    unstick(bx, st.slide ? 1 : 1.8)
 
     const speed = Math.hypot(v.x, v.z)
     if (!st.slide && st.ground && crouch && speed > 4) { st.slide = true; v.x *= Math.max(1, SPEED * 1.4 / speed); v.z *= Math.max(1, SPEED * 1.4 / speed) }
