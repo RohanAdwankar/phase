@@ -9,6 +9,7 @@ import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
 import { N, terrainY } from "./materials"
+import { gradient } from "./toon"
 import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, Box, Chunk, CH } from "./world"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -83,7 +84,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, kills: 0, fireT: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -219,7 +220,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.dim !== nd()) continue
       const dx = e.pos.x - p.x, dz = e.pos.z - p.z, dist = Math.hypot(dx, dz)
       if (dist > 6.5 || (dist > 1.8 && (dx * fwd.x + dz * fwd.z) / dist < 0.1)) continue
-      any = true; cutAt(e, 8, 1.2)
+      any = true; cutAt(e, 6, 1.2)
     }
     if (any) { st.hit = 0.15; st.kick = 1.4 }
   }
@@ -228,8 +229,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let any = false
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
       if (e.dim !== nd() || st.surgeHit.has(e)) continue
-      if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 6.2) continue
-      st.surgeHit.add(e); any = true; cutAt(e, 14, 2.5)
+      if (Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) > 5 ) continue
+      st.surgeHit.add(e); any = true; cutAt(e, 9, 2.5)
     }
     if (any) { st.hit = 0.2; st.kick = 2 }
   }
@@ -242,7 +243,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const killWalker = (e: Enemy) => {
     const c = e.pos.clone().setY(e.pos.y + 1.6)
     fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = 60; e.mesh.removeFromParent(); st.kills++
-    for (const ch of nearChunks(3)) ch.enemies = ch.enemies.filter(x => x !== e)
+    for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
   }
   const arrowStep = (a: Arrow, dt: number) => {
     if (a.stuck) { a.life -= dt; return }
@@ -264,6 +265,82 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   // each hit remembers where it came from in the world, so the flash can point at the shooter as the player turns
   const hurts: { x: number; z: number; t: number }[] = []
+  // explosives: pistol alt-fire (G) throws a grenade, bow alt-fire (G) plants TNT. TNT in the same spot stacks and the blast compounds.
+  type Bomb = { kind: "grenade" | "tnt"; mesh: THREE.Group; pos: THREE.Vector3; vel: THREE.Vector3; dim: number; fuse: number; n: number }
+  const bombs: Bomb[] = [], waves: { mesh: THREE.Mesh; t: number; r: number }[] = []
+  const waveGeo = new THREE.SphereGeometry(1, 24, 16), waveMat = new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
+  const tntMat = new THREE.MeshToonMaterial({ color: 0xd8321e, gradientMap: gradient }), bandMat = new THREE.MeshToonMaterial({ color: 0xf4eadb, gradientMap: gradient }), blackMat = new THREE.MeshToonMaterial({ color: 0x24262a, gradientMap: gradient })
+  const fuseMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffa030).multiplyScalar(3), toneMapped: false })
+  const gren = () => { const m = new THREE.Group(); m.add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), new THREE.MeshToonMaterial({ color: 0x3f5a2c, gradientMap: gradient })), (() => { const s = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), fuseMat); s.position.set(0, 0.15, 0); return s })()); return m }
+  const tntMesh = (n: number) => {
+    const m = new THREE.Group()
+    for (let k = 0; k < n; k++) {
+      const s = new THREE.Group(), box = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), tntMat), band = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.1, 0.44), bandMat), top = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.08), blackMat)
+      top.position.y = 0.24; s.add(box, band, top)
+      const a = k * 2.4, ring = Math.min(k, 1) * 0.3; s.position.set(Math.cos(a) * ring, 0.21 + Math.floor(k / 3) * 0.4, Math.sin(a) * ring); s.rotation.y = k * 0.9; m.add(s)
+    }
+    const sp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), fuseMat); sp.position.y = 0.3 + Math.floor((n - 1) / 3) * 0.4; sp.name = "spark"; m.add(sp)
+    return m
+  }
+  const explode = (pos: THREE.Vector3, dim: number, radius: number, dmg: number, shake: number) => {
+    for (const c of chunks.values()) for (const e of [...c.enemies]) {
+      if (e.dim !== dim || Math.abs(e.pos.x - pos.x) > radius || Math.abs(e.pos.z - pos.z) > radius) continue
+      const dx = e.pos.x - pos.x, dy = e.pos.y + 1.5 - pos.y, dz = e.pos.z - pos.z, dist = Math.hypot(dx, dy, dz)
+      if (dist > radius) continue
+      e.hp -= dmg * (1 - 0.65 * dist / radius); e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
+      if (e.hp <= 0) killWalker(e)
+    }
+    for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < radius * 0.7 && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
+    const dp = st.pos.clone().add(new V(0, 1, 0)).sub(pos), dist = dp.length()
+    if (dim === nd() && dist < radius) { dp.normalize().multiplyScalar((1 - dist / radius) * 22); st.vel.add(dp); st.vel.y = Math.max(st.vel.y, dp.y + 3); st.ground = false; st.hurt = Math.max(st.hurt, 0.15 * (1 - dist / radius)); st.hp -= 12 * (1 - dist / radius) * (dist < radius * 0.35 ? 1 : 0) }
+    const sc = radius / 7
+    fx.spark(pos, Math.min(300, Math.round(80 * sc)), new V(0, 1, 0), ORANGE); fx.smoke(pos, Math.min(30, Math.round(12 * sc)), new THREE.Color(0x2a2a2a), 1.8 * sc); boom.position.copy(pos); boom.intensity = 90 * Math.min(3, sc)
+    const wv = new THREE.Mesh(waveGeo, waveMat.clone()); wv.position.copy(pos); wv.scale.setScalar(0.5); scene.add(wv); waves.push({ mesh: wv, t: 0, r: radius })
+    st.shake = Math.max(st.shake, shake * Math.max(0, 1 - dist / (radius * 2.5)))
+  }
+  const blast = (b: Bomb) => {
+    if (b.kind === "grenade") explode(b.pos, b.dim, 7, 20, 0.5)
+    else explode(b.pos, b.dim, 13 * (1 + 0.45 * (b.n - 1)), 30 * b.n, 1.2 + 0.4 * b.n)
+  }
+  const throwGrenade = () => {
+    if (st.gCd > 0) return
+    st.gCd = 1.6; const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
+    m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
+    bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
+  }
+  const placeTnt = () => {
+    if (st.tCd > 0) return
+    const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()); let t = 14
+    for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) t = Math.min(t, rayCollider(o, dir, b))
+    for (let s = 1; s < t; s += 0.5) if (o.y + dir.y * s < terrainY(o.x + dir.x * s, o.z + dir.z * s)) { t = s; break }
+    const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.4)); p.y = Math.max(p.y, terrainY(p.x, p.z))
+    const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 1.8)
+    st.tCd = 0.7
+    if (near) { near.n++; near.fuse = Math.max(near.fuse, 2.2); near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
+    const m = tntMesh(1); m.position.copy(p); scene.add(m)
+    bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: 3.4, n: 1 })
+  }
+  const bombStep = (dt: number) => {
+    st.gCd -= dt; st.tCd -= dt
+    for (let i = bombs.length - 1; i >= 0; i--) {
+      const b = bombs[i]; b.fuse -= dt
+      if (b.kind === "grenade" && b.vel.lengthSq() > 0.01) {
+        b.vel.y -= 22 * dt
+        const len = b.vel.length() * dt, dir = b.vel.clone().normalize(); let tHit = len
+        for (const c of nearChunks(2)) for (const bx of c.boxes) if (bx.dim === b.dim) tHit = Math.min(tHit, rayCollider(b.pos, dir, bx))
+        if (tHit < len) { const nrm = dir.clone().negate(); b.vel.reflect(nrm.multiplyScalar(1)).multiplyScalar(0.35); b.vel.y = Math.max(b.vel.y, 0) } else b.pos.addScaledVector(dir, len)
+        const gy = terrainY(b.pos.x, b.pos.z) + 0.14
+        if (b.pos.y < gy) { b.pos.y = gy; b.vel.y = Math.abs(b.vel.y) * 0.35; b.vel.x *= 0.7; b.vel.z *= 0.7; if (b.vel.lengthSq() < 0.6) b.vel.set(0, 0, 0) }
+        for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === b.dim && Math.hypot(e.pos.x - b.pos.x, e.pos.z - b.pos.z) < 1.9 && b.pos.y < e.pos.y + 3) b.fuse = Math.min(b.fuse, 0.02)
+      }
+      b.mesh.position.copy(b.pos)
+      const spark = b.mesh.getObjectByName("spark"); const pulse = 1 + 0.5 * Math.sin(time * (14 + 30 / Math.max(0.2, b.fuse)))
+      if (spark) spark.scale.setScalar(pulse); else b.mesh.scale.setScalar(1 + 0.05 * Math.sin(time * 40))
+      b.mesh.visible = Math.abs(b.dim - d) < 1.1
+      if (b.fuse <= 0) { blast(b); b.mesh.removeFromParent(); bombs.splice(i, 1) }
+    }
+    for (let i = waves.length - 1; i >= 0; i--) { const w2 = waves[i]; w2.t += dt / 0.4; w2.mesh.scale.setScalar(Math.max(0.5, w2.r * Math.sqrt(w2.t))); (w2.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * Math.max(0, 1 - w2.t); if (w2.t >= 1) { w2.mesh.removeFromParent(); waves.splice(i, 1) } }
+  }
   // a walker can only shoot when no wall of its dimension lies between it and the player
   const clearShot = (e: Enemy) => {
     const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
@@ -385,7 +462,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (weapon === "sword") {
       if (st.surge > 0) {
         st.surge -= DT / st.surgeLen; st.spin = 1 - Math.max(0, st.surge); surgeCut()
-        if (st.surge <= 0) { st.surge = 0; st.fireT = 0.25; st.vel.x = st.sdir.x * 8; st.vel.z = st.sdir.z * 8 }
+        if (st.surge <= 0) { st.surge = 0; st.fireT = 0.9; st.vel.x = st.sdir.x * 8; st.vel.z = st.sdir.z * 8 }
       } else if (st.swing > 0) {
         const before = st.swing; st.swing -= DT / SWING
         if (before > 0.55 && st.swing <= 0.55) swingCut()
@@ -415,7 +492,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.kick = Math.max(0, st.kick - dt * 14); st.hit = Math.max(0, st.hit - dt); st.hurt = Math.max(0, st.hurt - dt); st.flash = Math.max(0, st.flash - dt)
     st.bob += dt * speed * (st.ground && !st.slide ? 1 : 0) * 0.9
     st.lookX *= Math.max(0, 1 - 10 * dt); st.lookY *= Math.max(0, 1 - 10 * dt)
-    if (!dbg.freezeVm) cam.position.set(p.x, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10), p.z)
+    st.shake = Math.max(0, st.shake - dt * 2.2); cam.position.set(p.x + (Math.random() - 0.5) * st.shake * 0.5, p.y + (st.slide ? 0.7 : 1.6) + Math.sin(st.bob * 1.3) * 0.025 * Math.min(1, speed / 10) + (Math.random() - 0.5) * st.shake * 0.5, p.z)
     if (!dbg.freezeVm) cam.rotation.set(st.pitch, st.yaw, st.roll)
     cam.fov += (80 - (weapon === "bow" ? st.draw : 0) * 14 - (weapon === "sword" ? st.charge * 6 : 0) + (st.surge > 0 ? 8 : 0) + Math.min(speed, 20) * 0.9 - cam.fov) * Math.min(1, 6 * dt); cam.updateProjectionMatrix()
     if (!dbg.freezeVm) {
@@ -487,6 +564,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.strokeStyle = st.hit > 0 ? "#fff" : "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#000"; ctx.shadowBlur = 3
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
+    if (weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tCd, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = cd > 0 ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`G ${weapon === "pistol" ? "grenade" : "tnt"}${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}${weapon === "bow" && tn ? `  planted ${tn}` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
     ctx.fillText(`${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   furthest ${best} m   ${Math.round(speed * 3.6)} km/h`, 20, 30)
@@ -494,7 +572,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) * 1.6, 4)
     for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
     ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow). 1 pistol, 2 bow, 3 sword, wheel phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
   }
 
   let raf = 0, last = performance.now(), acc = 0
@@ -512,7 +590,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
     if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
     while (acc > DT) { acc -= DT; step() }
-    enemyTick(Math.min(dt, 0.05)); separate(); stream()
+    enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); stream()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {
@@ -527,11 +605,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     if (e.code === "Space") e.preventDefault()
-    if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
+    if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyG" && !e.repeat) { if (weapon === "pistol") throwGrenade(); else if (weapon === "bow") placeTnt() }
+    if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
     if (e.code === "KeyQ") target = Math.max(0, Math.round(target) - 1)
     if (e.code === "KeyE") target = Math.min(N - 1, Math.round(target) + 1)
     if (!e.repeat && e.code === "Space") st.jump = true
