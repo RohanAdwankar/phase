@@ -28,7 +28,8 @@ export const loadWorld = async () => {
   const cache = new Map<string, THREE.Material>()
   const matFor = (dim: number, id: string, k: number, src: THREE.Material) => {
     const key = `${dim}:${id}:${k}`
-    if (!cache.has(key)) cache.set(key, track(dim, src.clone()))
+    // photogrammetry scans are open shells; draw both sides so the inside of a torn rim reads as rock instead of a see-through hull
+    if (!cache.has(key)) { const m = src.clone(); m.side = THREE.DoubleSide; cache.set(key, track(dim, m)) }
     return cache.get(key)!
   }
   const aoTex = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(0,0,0,0.6)"); r.addColorStop(0.6, "rgba(0,0,0,0.25)"); r.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c) })()
