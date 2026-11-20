@@ -61,14 +61,11 @@ export const makeViewmodel = (armor: PBR) => {
   const gx = 0, gz = 0.03, rx = 0.027, rz = 0.04
   const finger = (y: number, a0: number, a1: number, scale: number, r: number, mat: THREE.Material) => {
     const pts = [0, 1, 2, 3].map(k => { const a = lerp(a0, a1, k / 3); return new V(gx + Math.sin(a) * rx * scale, y, gz + Math.cos(a) * rz * scale) })
-    pts.forEach((p, k) => {
-      add(new THREE.SphereGeometry(r * (1 - k * 0.06), 12, 10), mat, p)
-      if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.06), r * (1.04 - k * 0.06), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
-    })
+    // robot fingers: three chunky angular segments, each a little narrower than the last
+    pts.forEach((p, k) => { if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.07), r * 1.9, d.length() * 1.08, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) } })
   }
   const limbChain = (pts: THREE.Vector3[], r: number, mat: THREE.Material) => pts.forEach((p, k) => {
-    add(new THREE.SphereGeometry(r * (1 - k * 0.08), 12, 10), mat, p)
-    if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.08), r * (1.05 - (k - 1) * 0.08), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
+    if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.08), r * 1.9, d.length() * 1.1, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) }
   })
 
   // right hand: palm behind the grip, three fingers curled round the front, index along the frame, thumb on the far side

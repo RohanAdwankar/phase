@@ -61,14 +61,11 @@ export const makeSword = (armor: PBR) => {
   const gx = 0, gz = 0.03, rx = 0.027, rz = 0.04
   const finger = (y: number, a0: number, a1: number, scale: number, r: number, mat: THREE.Material) => {
     const pts = [0, 1, 2, 3].map(k => { const a = lerp(a0, a1, k / 3); return new V(gx + Math.sin(a) * rx * scale, y, gz + Math.cos(a) * rz * scale) })
-    pts.forEach((p, k) => {
-      add(new THREE.SphereGeometry(r * (1 - k * 0.06), 12, 10), mat, p)
-      if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.06), r * (1.04 - k * 0.06), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
-    })
+    // robot fingers: three chunky angular segments, each a little narrower than the last
+    pts.forEach((p, k) => { if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.07), r * 1.9, d.length() * 1.08, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) } })
   }
   const limbChain = (pts: THREE.Vector3[], r: number, mat: THREE.Material) => pts.forEach((p, k) => {
-    add(new THREE.SphereGeometry(r * (1 - k * 0.08), 12, 10), mat, p)
-    if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.08), r * (1.05 - (k - 1) * 0.08), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
+    if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.08), r * 1.9, d.length() * 1.1, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) }
   })
 
   // right hand: palm behind the grip, three fingers curled round the front, index along the frame, thumb on the far side
@@ -85,8 +82,8 @@ export const makeSword = (armor: PBR) => {
   // long curved single-edged blade with a gold handle, after the reference: black spine, bright serrated edge, tapering to a swept tip
   const BL = 1.0, BW = 0.05, CURVE = 0.16
   const steelEdge = new THREE.MeshStandardMaterial({ color: 0xb4b9c0, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.35 })
-  const blackSteel = new THREE.MeshStandardMaterial({ color: 0x1a1c20, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.35 })
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.85, roughness: 0.5, envMapIntensity: 0.5, normalMap: trimNormal, normalScale: new THREE.Vector2(0.4, 0.4) })
+  const blackSteel = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, metalness: 0.8, roughness: 0.5, envMapIntensity: 0.35 })
+  const brass = new THREE.MeshStandardMaterial({ color: 0x1b1c20, metalness: 0.5, roughness: 0.55, envMapIntensity: 0.3 })
   const spine = (t: number) => new V(CURVE * t * t * BL * 0.6, t * BL, 0)
   const half = (t: number) => (t < 0.9 ? BW : BW * Math.max(0.05, 1 - (t - 0.9) / 0.1 * 0.95)) * (1 - 0.18 * t)
   const outline = (lo: number, hi: number) => {
@@ -103,7 +100,7 @@ export const makeSword = (armor: PBR) => {
   // long gold handle with cut-outs, a heavy guard and a hooked pommel
   add(rbox(0.034, 0.34, 0.046, 0.012), brass, new V(0.0, -0.1 + 0.0, 0))
   for (const y of [-0.02, -0.1, -0.18]) add(rbox(0.036, 0.04, 0.02, 0.006), blackSteel, new V(0.0, y, 0.0))
-  for (const y of [-0.04, -0.14, -0.22]) add(new THREE.TorusGeometry(0.026, 0.004, 6, 20), steelEdge, new V(0, y, 0), align(new V(0, 1, 0), new V(0, 0, 1)))
+  for (const y of [-0.04, -0.14, -0.22]) add(new THREE.TorusGeometry(0.026, 0.004, 6, 20), brass, new V(0, y, 0), align(new V(0, 1, 0), new V(0, 0, 1)))
   add(rbox(0.07, 0.05, 0.06, 0.014), brass, new V(0.006, y0 - 0.02, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.12)))
   add(rbox(0.02, 0.07, 0.07, 0.01), brass, new V(-0.03, y0 - 0.03, 0))
   add(rbox(0.05, 0.05, 0.06, 0.014), brass, new V(0.0, -0.28, 0.0), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -0.35)))

@@ -65,14 +65,11 @@ export const makePistol = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferG
   const gx = 0, gz = 0.03, rx = 0.027, rz = 0.04
   const finger = (y: number, a0: number, a1: number, scale: number, r: number, mat: THREE.Material) => {
     const pts = [0, 1, 2, 3].map(k => { const a = lerp(a0, a1, k / 3); return new V(gx + Math.sin(a) * rx * scale, y, gz + Math.cos(a) * rz * scale) })
-    pts.forEach((p, k) => {
-      add(new THREE.SphereGeometry(r * (1 - k * 0.06), 12, 10), mat, p)
-      if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.06), r * (1.04 - k * 0.06), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
-    })
+    // robot fingers: three chunky angular segments, each a little narrower than the last
+    pts.forEach((p, k) => { if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.07), r * 1.9, d.length() * 1.08, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) } })
   }
   const limbChain = (pts: THREE.Vector3[], r: number, mat: THREE.Material) => pts.forEach((p, k) => {
-    add(new THREE.SphereGeometry(r * (1 - k * 0.08), 12, 10), mat, p)
-    if (k) add(new THREE.CylinderGeometry(r * (1 - k * 0.08), r * (1.05 - (k - 1) * 0.08), p.distanceTo(pts[k - 1]), 12), mat, p.clone().lerp(pts[k - 1], 0.5), align(p.clone().sub(pts[k - 1])))
+    if (k) { const d = p.clone().sub(pts[k - 1]); add(rbox(r * 2.1 * (1 - k * 0.08), r * 1.9, d.length() * 1.1, 0.003), mat, p.clone().lerp(pts[k - 1], 0.5), align(d, new V(0, 0, 1))) }
   })
 
   // right hand: palm behind the grip, three fingers curled round the front, index along the frame, thumb on the far side
@@ -85,7 +82,13 @@ export const makePistol = (flashMap: THREE.Texture, pistol: { geo: THREE.BufferG
   limbChain([new V(gx + 0.032, top * 0.3, gz + 0.04), new V(gx + 0.034, top * 0.28, gz - 0.02), new V(gx + 0.03, top * 0.2, gz - 0.07)], 0.0105, suit)
   arm([new V(gx + 0.03, bottom * 0.42, gz + 0.09), new V(gx + 0.06, bottom * 1.05, gz + 0.2), new V(gx + 0.1, -0.17, gz + 0.4), new V(gx + 0.17, -0.36, gz + 0.72)], 0.019, 0.031)
 
-  const muzzle = new THREE.Object3D(); muzzle.position.set(0, size.y * 0.25, -len * 0.75); root.add(muzzle)
+  // a big, chunky barrel: a thick shroud out of the slide ending in a wide muzzle ring
+  const barrelMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1f, roughness: 0.5, metalness: 0.45, flatShading: true })
+  const by = size.y * 0.25 - 0.012, bz = -len * 0.5
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.17, 8), barrelMat); barrel.rotation.x = Math.PI / 2; barrel.position.set(0, by, bz - 0.04); root.add(barrel)
+  const muzRing = new THREE.Mesh(new THREE.CylinderGeometry(0.039, 0.039, 0.035, 8), barrelMat); muzRing.rotation.x = Math.PI / 2; muzRing.position.set(0, by, bz - 0.135); root.add(muzRing)
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 12), new THREE.MeshBasicMaterial({ color: 0x000000 })); hole.rotation.x = Math.PI / 2; hole.position.set(0, by, bz - 0.153); root.add(hole)
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, by, bz - 0.17); root.add(muzzle)
   const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashMap, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, opacity: 0 }))
   flash.scale.setScalar(0.2); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
