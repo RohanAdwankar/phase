@@ -197,6 +197,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.position.copy(o).addScaledVector(dir, 0.8).add(new V(0.12, -0.12, 0).applyQuaternion(cam.quaternion)); mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), dir); scene.add(mesh)
     arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false })
     st.kick = 1.6
+    // a fully drawn shot from the ground kicks you the opposite way: aim down to rocket straight up, aim a little low to be thrown far
+    if (power >= 0.99 && (st.ground || st.coyote > 0)) {
+      st.vel.addScaledVector(dir, -26); st.vel.y += 7; st.ground = false; st.coyote = 0; st.slide = false; st.shake = 0.7
+      sfx.play("whoosh", undefined, 1.4); fx.spark(new V(st.pos.x, st.pos.y + 0.2, st.pos.z), 40, new V(0, 1, 0), DUST); fx.smoke(new V(st.pos.x, st.pos.y, st.pos.z), 6, DUST, 1.4)
+    }
   }
   const MAG = 12, RELOAD = 1.2
   const startReload = () => { if (st.reload > 0 || st.ammo === MAG) return; st.reload = RELOAD; sfx.play("tick") }
