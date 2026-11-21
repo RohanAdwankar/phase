@@ -890,12 +890,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.font = "14px ui-monospace, monospace"
     if (!dbg.hideHud && !dbg.hideStats) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.items} powerups   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     if (!dbg.hideHud || dbg.hideStats) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
-    // the dimensions are a ring: five dots, and the marker travels round it (and wraps) as you phase
+    // a small tick ruler on the right edge shows the dimension; the larger ring is only drawn for recordings, where it shows the loop
+    if (!dbg.showKeys) { for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) } ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + wrap(d) * 60, 16, 2) }
+    else {
     const cx = w - 90, cy = h / 2, rr = 52, ang = (i: number) => (i / N) * Math.PI * 2 - Math.PI / 2
     ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke()
     for (let i = 0; i < N; i++) { ctx.fillStyle = i === nd() ? "#fff" : "rgba(255,255,255,0.45)"; ctx.fillRect(cx + Math.cos(ang(i)) * rr - 6, cy + Math.sin(ang(i)) * rr - 6, 12, 12) }
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + Math.cos(ang(wrap(d))) * rr, cy + Math.sin(ang(wrap(d))) * rr, 6, 0, Math.PI * 2); ctx.fill()
     ctx.textAlign = "center"; ctx.font = "22px ui-monospace, monospace"; ctx.fillText(`${nd() + 1}`, cx, cy + 8); ctx.textAlign = "left"
+    }
     if (dbg.showKeys || tut >= 0) {
       const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["", "", 20], ["Wheel", "scroll", 84]]
       let x = w / 2 - caps.reduce((a, c) => a + c[2] + 6, 0) / 2, y = h - 72; ctx.textAlign = "center"; ctx.font = "17px ui-monospace, monospace"
