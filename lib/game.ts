@@ -84,7 +84,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   let weapon: Weapon = "pistol"
   const swordPivot = new THREE.Group(); swordPivot.position.set(0, -0.4, 0); swordPivot.add(sword.root); swordPivot.visible = false
   vmCam.add(bow.root, pistol.root, swordPivot); bow.root.visible = false
-  const swap = (w: Weapon) => { if (w === weapon) return; sfx.draw.stop(); sfx.play("tick"); weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
+  const swap = (w: Weapon) => { if (w === weapon) return; st.reload = 0; sfx.draw.stop(); sfx.play("tick"); weapon = w; st.draw = 0; st.swing = 0; st.fireT = 0.25; bow.root.visible = w === "bow"; pistol.root.visible = w === "pistol"; swordPivot.visible = w === "sword" }
   const beamMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb04a).multiplyScalar(3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
   const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6)
 
@@ -92,7 +92,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -172,7 +172,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const respawn = () => {
     st.pos.copy(checkpoint.pos).y += 0.3; st.vel.set(0, 0, 0); st.hp = st.maxHp; st.wallT = 0
     d = target = checkpoint.dim
-    st.inv = 2.5; st.respawnFx = 1.4; st.hurt = 0; hurts.length = 0; sfx.play("respawn")
+    st.inv = 2.5; st.ammo = 12; st.reload = 0; st.respawnFx = 1.4; st.hurt = 0; hurts.length = 0; sfx.play("respawn")
   }
 
   const boom = new THREE.PointLight(0xffa040, 0, 30); scene.add(boom)
@@ -198,8 +198,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false })
     st.kick = 1.6
   }
+  const MAG = 12, RELOAD = 1.2
+  const startReload = () => { if (st.reload > 0 || st.ammo === MAG) return; st.reload = RELOAD; sfx.play("tick") }
   const shootPistol = () => {
-    sfx.play("pistol")
+    sfx.play("pistol"); st.ammo--
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
@@ -684,7 +686,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         st.charge = 0
       }
     }
-    else if (weapon === "pistol") { if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 } }
+    else if (weapon === "pistol") {
+      if (st.reload > 0) { st.reload -= DT; if (st.reload <= 0) { st.ammo = MAG; sfx.play("clink") } }
+      else if (st.ammo <= 0) startReload()
+      else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 }
+    }
     else if (st.fire && st.fireT <= 0) { if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw) }
     else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } else sfx.draw.stop(); st.draw = 0 }
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
@@ -761,6 +767,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       } else {
         pistol.root.position.set(0.37 + sway + Math.cos(st.bob * 0.65) * 0.006, -0.3 + lift + bobY, -0.56 + st.kick * 0.03)
         pistol.root.rotation.set(st.kick * 0.05 + st.lookY * 0.8 + 0.06, 0.2 - st.lookX * 0.8, st.slide ? -0.12 : 0)
+        // reload: the gun tips toward the player, the magazine drops out and a new one slides in
+        const rp = st.reload > 0 ? 1 - st.reload / RELOAD : 0, dip = Math.sin(Math.min(1, rp) * Math.PI), magY = rp < 0.3 ? -rp / 0.3 : rp < 0.6 ? -1 : -(1 - (rp - 0.6) / 0.3)
+        pistol.root.position.y -= dip * 0.1; pistol.root.rotation.z += dip * 0.7; pistol.root.rotation.x += dip * 0.5
+        pistol.mag.position.y = -0.108 + Math.min(0, Math.max(-1, magY)) * 0.2; pistol.mag.visible = !(rp > 0.3 && rp < 0.6)
       }
     }
     bow.setDraw(st.draw, st.fireT <= 0 || st.draw > 0)
@@ -828,6 +838,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.strokeStyle = st.hit > 0 ? "#fff" : "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#000"; ctx.shadowBlur = 3
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
+    if (!dbg.hideHud && weapon === "pistol") { ctx.fillStyle = st.ammo <= 3 || st.reload > 0 ? "#e8c36a" : "#fff"; ctx.font = "700 22px ui-monospace, monospace"; ctx.textAlign = "right"; ctx.fillText(st.reload > 0 ? "reloading" : `${st.ammo} / ${MAG}`, w - 30, h - 30); ctx.textAlign = "left" }
     if (!dbg.hideHud && weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tCd, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = cd > 0 ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`G ${weapon === "pistol" ? "grenade" : "tnt"}${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}${weapon === "bow" && tn ? `  planted ${tn}` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
@@ -911,6 +922,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
     keyT[e.code] = performance.now()
     if (e.code === "KeyT") tut = -1
+    if (e.code === "KeyR" && weapon === "pistol") startReload()
     if (e.code === "KeyQ") target = Math.round(target) - 1
     if (e.code === "KeyE") target = Math.round(target) + 1
     if (!e.repeat && e.code === "Space") st.jump = true

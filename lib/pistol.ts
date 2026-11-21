@@ -89,7 +89,7 @@ export const makePistol = (flashMap: THREE.Texture, armor: PBR) => {
   part(bx(0.054, 0.034, 0.28), slide, 0, 0.078, -0.1)                       // top slide
   part(bx(0.02, 0.014, 0.05), dark, 0, 0.1, 0.03); part(bx(0.012, 0.016, 0.014), dark, 0, 0.104, -0.23) // sights
   part(bx(0.052, 0.12, 0.064), body, 0, -0.04, 0.04, -0.2)                  // grip, raked back
-  part(bx(0.046, 0.038, 0.058), slide, 0, -0.108, 0.058, -0.2)             // magazine base
+  const mag = part(bx(0.046, 0.038, 0.058), slide, 0, -0.108, 0.058, -0.2) // magazine base
   part(bx(0.013, 0.013, 0.07), dark, 0, -0.004, -0.05); part(bx(0.013, 0.04, 0.013), dark, 0, 0.014, -0.082) // trigger guard
   part(bx(0.022, 0.026, 0.05), slide, 0, 0.01, -0.24)                       // under-rail
   // the slide ends flush with the frame: just a short muzzle cap, no long barrel
@@ -99,5 +99,5 @@ export const makePistol = (flashMap: THREE.Texture, armor: PBR) => {
   flash.scale.setScalar(0.2); muzzle.add(flash)
   const light = new THREE.PointLight(0xff9a3a, 0, 3); muzzle.add(light)
   root.scale.setScalar(0.72); root.position.set(0.14, -0.13, -0.32)
-  return { root, muzzle, flash, light, eject: new V(0.03, 0.08, -0.02) }
+  return { root, muzzle, flash, light, mag, eject: new V(0.03, 0.08, -0.02) }
 }
