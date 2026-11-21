@@ -405,6 +405,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // a walker can only shoot when no wall of its dimension lies between it and the player
   const clearShot = (e: Enemy) => {
     const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
+  // ranged shots miss more when you are fast and high: up to half of them at full speed well off the ground
+  const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z)) / 10))
     for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayCollider(from, dir, b) < len) return false
     return true
   }
@@ -454,7 +456,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         e.fireT = e.kind === "flyer" ? 0.55 + Math.random() * 0.5 : 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
-        if (Math.random() < (e.kind === "flyer" ? 0.4 : 0.55)) { hurtPlayer(e, e.kind === "flyer" ? 6 : 9, e.kind === "flyer" ? "shot by a drone" : "shot by a walker"); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        if (Math.random() < (e.kind === "flyer" ? 0.4 : 0.55) * dodge()) { hurtPlayer(e, e.kind === "flyer" ? 6 : 9, e.kind === "flyer" ? "shot by a drone" : "shot by a walker"); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
@@ -571,7 +573,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.volT = 1.9
       const from = e.turret.getWorldPosition(new V()), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
       for (let k = -1; k <= 1; k++) { const tt = to.clone(); tt.x += k * 3 * Math.cos(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); tt.z -= k * 3 * Math.sin(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); beam(from, tt, 0.07, 0.14) }
-      sfx.play("zap", from, 1.2); if (Math.random() < 0.75) hurtPlayer(e, 13, "blasted by the warden")
+      sfx.play("zap", from, 1.2); if (Math.random() < 0.75 * dodge()) hurtPlayer(e, 13, "blasted by the warden")
     }
   }
   const bossDown = (e: Enemy) => {
