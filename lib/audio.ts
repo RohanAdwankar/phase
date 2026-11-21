@@ -63,8 +63,12 @@ export const createSfx = () => {
   const log: { k: Kind; t: number; v: number; dist: number }[] = [], lp = { x: 0, y: 0, z: 0 }
   const init = () => {
     if (ctx) { if (ctx.state === "suspended") void ctx.resume(); return }
-    ctx = new AudioContext(); master = ctx.createGain(); master.gain.value = 0.55
-    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6; master.connect(comp); comp.connect(ctx.destination)
+    ctx = new AudioContext(); master = ctx.createGain(); master.gain.value = 0.4
+    // chain: a high-pass drops sub-bass rumble, a hard limiter catches stacked blasts, and a soft clip rounds whatever peaks remain
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 40
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -22; comp.knee.value = 0; comp.ratio.value = 20; comp.attack.value = 0.002; comp.release.value = 0.2
+    const clip = ctx.createWaveShaper(); clip.curve = Float32Array.from({ length: 1024 }, (_, i) => Math.tanh((i / 511.5 - 1) * 1.5) / Math.tanh(1.5)); const out = ctx.createGain(); out.gain.value = 0.7
+    master.connect(hp); hp.connect(comp); comp.connect(clip); clip.connect(out); out.connect(ctx.destination)
     engine = makeSfx(ctx, master)
   }
   const listener = (pos: { x: number; y: number; z: number }, fwd: { x: number; y: number; z: number }) => {
@@ -74,9 +78,16 @@ export const createSfx = () => {
     if (l.positionX) { l.positionX.setValueAtTime(pos.x, t); l.positionY.setValueAtTime(pos.y, t); l.positionZ.setValueAtTime(pos.z, t); l.forwardX.setValueAtTime(fwd.x, t); l.forwardY.setValueAtTime(fwd.y, t); l.forwardZ.setValueAtTime(fwd.z, t); l.upX.setValueAtTime(0, t); l.upY.setValueAtTime(1, t); l.upZ.setValueAtTime(0, t) }
   }
   // play(kind) is heard in the head; play(kind, position) comes from the world
+  const blasts: number[] = []
   const play = (kind: Kind, at?: { x: number; y: number; z: number }, v = 1) => {
     log.push({ k: kind, t: performance.now(), v, dist: at ? Math.hypot(at.x - lp.x, at.y - lp.y, at.z - lp.z) : 0 })
     if (!ctx || !engine || !master || muted) return
+    // blasts stack: many at once get quieter and past four in a quarter second are dropped
+    if (kind === "boom" || kind === "bigboom" || kind === "die") {
+      const now = ctx.currentTime; while (blasts.length && now - blasts[0] > 0.25) blasts.shift()
+      if (blasts.length >= 4) return
+      v /= 1 + 0.6 * blasts.length; blasts.push(now)
+    }
     if (!at) { engine.play(kind, master, v); return }
     const p = ctx.createPanner(); p.panningModel = "equalpower"; p.distanceModel = "inverse"; p.refDistance = kind === "bigboom" ? 30 : kind === "boom" ? 14 : 6; p.rolloffFactor = 1.3; p.maxDistance = 400
     p.positionX.value = at.x; p.positionY.value = at.y; p.positionZ.value = at.z
