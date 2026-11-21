@@ -8,7 +8,7 @@ import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
 import { N, terrainY, track } from "./materials"
-import { gradient } from "./toon"
+import { gradient, PALETTE } from "./toon"
 import { createSfx, makeSfx } from "./audio"
 import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, LOAD_STEPS, chunkKey, clearRock, ellBox, hash, diff, Box, Chunk, CH } from "./world"
 import { BOULDERS } from "./rocks"
@@ -18,7 +18,8 @@ const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
 const DT = 1 / 120, G = 24, SPEED = 10
 const ORANGE = new THREE.Color(0xff9a30), DUST = new THREE.Color(0xe8d9b0)
-const GLOW = [0x33ccff, 0xffcc44, 0x44ffaa, 0xff6644, 0xaa88ff]
+// each dimension glows in its own grass colour, so a beacon, its dot in the hud and the world around it all match
+const GLOW = PALETTE.map(p => p.g1)
 
 const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE.Vector3) => {
   let t0 = 0, t1 = Infinity
