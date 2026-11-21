@@ -35,11 +35,26 @@ const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE
 // ray against a collider: boulders are real ellipsoids (so arrows never stick to empty corners), everything else an axis-aligned box
 const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
   if (!b.ell) return rayBox(o, d, b.min, b.max)
-  const e = b.ell, ox = (o.x - e.cx) / e.rx, oy = (o.y - e.cy) / e.hh, oz = (o.z - e.cz) / e.rz, dx = d.x / e.rx, dy = d.y / e.hh, dz = d.z / e.rz
+  const e = b.ell, rx = e.rx * 1.3, rz = e.rz * 1.3, hh = e.hh * 1.3, ox = (o.x - e.cx) / rx, oy = (o.y - e.cy) / hh, oz = (o.z - e.cz) / rz, dx = d.x / rx, dy = d.y / hh, dz = d.z / rz
   const A = dx * dx + dy * dy + dz * dz, B = 2 * (ox * dx + oy * dy + oz * dz), C = ox * ox + oy * oy + oz * oz - 1, disc = B * B - 4 * A * C
   if (disc < 0) return Infinity
-  const t = (-B - Math.sqrt(disc)) / (2 * A)
-  return t > 0 && o.y + d.y * t > e.bot ? t : C < 0 ? 0 : Infinity
+  const m = e.mesh
+  if (!m) { const t = (-B - Math.sqrt(disc)) / (2 * A); return t > 0 && o.y + d.y * t > e.bot ? t : C < 0 ? 0 : Infinity }
+  // into the rock's own frame: translate, undo the turn, undo the scale
+  const cs = Math.cos(m.ry), sn = Math.sin(m.ry), px = o.x - e.cx, py = o.y - e.cy, pz = o.z - e.cz
+  const lox = (px * cs - pz * sn) / m.sx, loy = py / m.sy, loz = (px * sn + pz * cs) / m.sz, ldx = (d.x * cs - d.z * sn) / m.sx, ldy = d.y / m.sy, ldz = (d.x * sn + d.z * cs) / m.sz
+  const pos = m.set.attributes.position.array as Float32Array
+  let best = Infinity, crossings = 0
+  for (let i = 0; i < pos.length; i += 9) {
+    const ax = pos[i], ay = pos[i + 1], az = pos[i + 2], e1x = pos[i + 3] - ax, e1y = pos[i + 4] - ay, e1z = pos[i + 5] - az, e2x = pos[i + 6] - ax, e2y = pos[i + 7] - ay, e2z = pos[i + 8] - az
+    const hx = ldy * e2z - ldz * e2y, hy = ldz * e2x - ldx * e2z, hz = ldx * e2y - ldy * e2x, det = e1x * hx + e1y * hy + e1z * hz
+    if (Math.abs(det) < 1e-9) continue
+    const f = 1 / det, sx = lox - ax, sy = loy - ay, sz = loz - az, u = f * (sx * hx + sy * hy + sz * hz); if (u < 0 || u > 1) continue
+    const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x, v = f * (ldx * qx + ldy * qy + ldz * qz); if (v < 0 || u + v > 1) continue
+    const t = f * (e2x * qx + e2y * qy + e2z * qz); if (t > 0) { crossings++; if (t < best) best = t }
+  }
+  // an odd number of crossings means the ray starts inside the rock: that is a hit at once
+  return crossings % 2 === 1 ? 0 : best
 }
 
 export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void) {
@@ -546,7 +561,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const g2 = new THREE.Group(), pillar = new THREE.Mesh(BOULDERS[p.i % 4], world.rock[p.dim]); pillar.scale.set(rad, h, rad); pillar.position.set(p.x, cy, p.z); pillar.castShadow = true; pillar.receiveShadow = true; g2.add(pillar)
     const crystal = new THREE.Mesh(crystalGeo, pylonMats[p.dim].off); crystal.scale.set(0.8, 1.5, 0.8); crystal.position.set(p.x, topY + 1.9, p.z); g2.add(crystal)
     const beam = new THREE.Mesh(beamGeo2, pylonMats[p.dim].beam); beam.position.set(p.x, topY + 36, p.z); g2.add(beam)
-    c2.group.add(g2); c2.boxes.push(ellBox(p.x, cy, p.z, rad * 1.12, h * 0.97, rad * 1.12, p.dim))
+    c2.group.add(g2); c2.boxes.push(ellBox(p.x, cy, p.z, rad * 1.12, h * 0.97, rad * 1.12, p.dim, { sx: rad, sy: h, sz: rad, ry: 0, set: BOULDERS[p.i % 4] }))
     p.ty = ty; p.top = topY; p.group = g2; p.chunk = c2; p.crystal = crystal; setLit(p, sh.lit[p.i])
   }
   const banner = (t: string, secs = 3) => { st.banner = t; st.bannerT = secs }
@@ -953,7 +968,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH: terrainY, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { rayCollider, st, chunks, genMs, groundH: terrainY, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()

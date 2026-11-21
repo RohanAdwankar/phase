@@ -9,9 +9,9 @@ const V = THREE.Vector3
 // The world is an endless grid of chunks. Every dimension has its own layout drawn from a hash of its coordinates, so a
 // wall in one dimension may be an opening in the next.
 export const CH = 40, CELL = 20
-// enemy toughness grows with the player's level (bosses defeated); read when a chunk spawns its patrols
 // ell marks a boulder: a solid ellipsoid (centre, horizontal radii, centre height, half height) instead of a plain axis-aligned box
-export type Ell = { cx: number; cz: number; rx: number; rz: number; cy: number; hh: number; bot: number }
+// mesh remembers which rock shape sits there and how it was scaled and turned, so shots can hit the real surface
+export type Ell = { cx: number; cz: number; rx: number; rz: number; cy: number; hh: number; bot: number; mesh?: { sx: number; sy: number; sz: number; ry: number; set: THREE.BufferGeometry } }
 export type Box = { min: THREE.Vector3; max: THREE.Vector3; dim: number; ell?: Ell }
 // Push a ground unit (a circle of radius R standing at pos) out of every rock of its dimension: boulders radially, boxes through the nearest face. Returns true if it moved.
 export const clearRock = (boxes: Box[], dim: number, pos: THREE.Vector3, R: number) => {
@@ -37,8 +37,8 @@ export const clearRock = (boxes: Box[], dim: number, pos: THREE.Vector3, R: numb
   }
   return moved
 }
-export const ellBox = (cx: number, cy: number, cz: number, rx: number, hh: number, rz: number, dim: number): Box =>
-  ({ min: new THREE.Vector3(cx - rx, cy - hh, cz - rz), max: new THREE.Vector3(cx + rx, cy + hh, cz + rz), dim, ell: { cx, cz, rx, rz, cy, hh, bot: cy - hh * 0.62 } })
+export const ellBox = (cx: number, cy: number, cz: number, rx: number, hh: number, rz: number, dim: number, mesh?: Ell["mesh"]): Box =>
+  ({ min: new THREE.Vector3(cx - rx, cy - hh, cz - rz), max: new THREE.Vector3(cx + rx, cy + hh, cz + rz), dim, ell: { cx, cz, rx, rz, cy, hh, bot: cy - hh * 0.62, mesh } })
 export type Chunk = {
   cx: number; cz: number; group: THREE.Group; detail: THREE.Group | null; lods: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }
   boxes: Box[]; enemies: Enemy[]; grass: THREE.Material[]; geos: THREE.BufferGeometry[]
@@ -182,8 +182,8 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       // standing stones
       if (r() < 0.38 && !near0(cxm, czm, 26)) for (let j = 0; j < 1 + Math.floor(r() * 2); j++) {
         const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z), hx = rad * 0.78
-        const rz2 = rad * (0.8 + 0.4 * r()); boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, r() * 6.28, r() * 4]]); blob(dim, x, z, rad * 4, rad * 4)
-        c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 1.12, h * 0.97, rz2 * 1.12, dim))
+        const rz2 = rad * (0.8 + 0.4 * r()), ry = r() * 6.28, v = r() * 4; boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, ry, v]]); blob(dim, x, z, rad * 4, rad * 4)
+        c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 1.12, h * 0.97, rz2 * 1.12, dim, { sx: rad, sy: h, sz: rz2, ry, set: BOULDERS[Math.floor(v) % BOULDERS.length] }))
       }
       // floating rocks to jump between
       if (r() < 0.3 && !near0(cxm, czm, 20)) {
@@ -216,7 +216,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         list.push([bx, terrainY(bx, bz) + h * 0.38, bz, rad * (vertical ? 1 : 1.35), h, rad * (vertical ? 1.35 : 1), r() * 6.28, r() * 4])
       }
       boulders(dim, list)
-      for (const [bx, by, bz, rx, h, rz] of list) c.boxes.push(ellBox(bx, by, bz, rx * 1.12, h * 0.97, rz * 1.12, dim))
+      for (const [bx, by, bz, rx, h, rz, ry, v] of list) c.boxes.push(ellBox(bx, by, bz, rx * 1.12, h * 0.97, rz * 1.12, dim, { sx: rx, sy: h, sz: rz, ry, set: BOULDERS[Math.floor(v) % BOULDERS.length] }))
       blob(dim, wx, wz, vertical ? 8 : CELL * 1.2, vertical ? CELL * 1.2 : 8)
     }
   }
