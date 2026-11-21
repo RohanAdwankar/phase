@@ -2,6 +2,7 @@ import * as THREE from "three"
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"
 import { PBR } from "./assets"
 import { track, pbrMaterial, terrainY } from "./materials"
+import { buildBoss } from "./bosses"
 
 const V = THREE.Vector3
 const N = 5
@@ -159,8 +160,6 @@ const brute = (m: FoeMats, dim: number) => {
 }
 
 export const makeEnemy = (kind: Kind, m: FoeMats, dim: number, pos: THREE.Vector3): Enemy => {
-  const s = STATS[kind], b = kind === "walker" ? walker(m, dim) : kind === "swarmer" ? swarmer(m, dim) : kind === "flyer" ? flyer(m, dim) : brute(m, dim)
-  if (kind === "boss") b.mesh.scale.setScalar(1.72)
-  if (kind === "guardian") b.mesh.scale.setScalar(1.4)
+  const s = STATS[kind], b = kind === "boss" || kind === "guardian" ? buildBoss(kind, dim) : kind === "walker" ? walker(m, dim) : kind === "swarmer" ? swarmer(m, dim) : kind === "flyer" ? flyer(m, dim) : brute(m, dim)
   return { kind, mesh: b.mesh, update: b.update as Enemy["update"], turret: b.turret, pos, dim, hp: s.hp, fireT: 0.8 + Math.random(), hitT: 0, r: s.r, hr: s.hr, h: s.h, fy: s.fy, speed: s.speed, t1: 0, t2: 0 }
 }

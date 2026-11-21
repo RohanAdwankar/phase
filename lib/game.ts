@@ -693,15 +693,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     return { moving, mx, mz, spd }
   }
-  const tintGuardian = (e: Enemy) => {
-    e.mesh.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const c = (m.material as THREE.MeshStandardMaterial).clone(); if (c.color) c.color.lerp(GLOWC[e.dim], 0.5); c.userData = { xray: true }; track(e.dim, c); m.material = c })
-  }
   const spawnGuardian = (py: Pylon) => {
     let best = { x: py.x + 9, z: py.z, c: -1e9 }
     for (let k = 0; k < 8; k++) { const an = (k / 8) * Math.PI * 2, x = py.x + Math.cos(an) * 10, z = py.z + Math.sin(an) * 10, c = clearance(py.dim, x, z); if (c > best.c) best = { x, z, c } }
     const pos = new V(best.x, terrainY(best.x, best.z, py.dim), best.z), e = makeEnemy("guardian", world.foe, py.dim, pos), ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) return
     e.variant = py.dim; e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
-    tintGuardian(e); ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
+    ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
   }
   const bossDown = (e: Enemy) => {
     for (const sh of shrines.values()) if (sh.boss === e) { sh.state = "done"; sh.boss = null }
