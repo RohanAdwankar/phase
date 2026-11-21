@@ -1,0 +1,155 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>phase tutorial</title>
+<style>
+*{margin:0}html,body{height:100%;background:#0b1218;overflow:hidden;font-family:ui-sans-serif,system-ui,sans-serif;color:#fff}
+canvas{display:block;width:100vw;height:100vh}
+a{position:fixed;color:#fff;text-decoration:none;font-size:16px}
+#skip{top:18px;right:24px;opacity:.7}#skip:hover,#play:hover{text-decoration:underline}
+#play{display:none;left:50%;bottom:14%;transform:translateX(-50%);font-size:28px}
+</style>
+<canvas id="c"></canvas><a id="skip" href="./">skip to game</a><a id="play" href="./">play</a>
+<script>
+// A self-contained tutorial: short scripted scenes that freeze at the decision point and wait until you do the thing.
+// No game code is loaded here, so the main bundle stays small.
+const c = document.getElementById("c"), x = c.getContext("2d"), N = 5
+const TINT = ["#3a9d7c", "#d0662e", "#7455cf", "#8fc22c", "#d9ae34"]
+let W, H, dpr, d = 2, target = 2, lastWheel = 0, si = 0, S = {}, now = 0
+const keyT = {}, wrap = v => ((v % N) + N) % N, cur = () => Math.round(wrap(d)) % N
+const gap = i => { const v = Math.abs(i - wrap(d)); return Math.min(v, N - v) }
+const k = () => W / 1280, px = () => W * 0.2, gy = () => H * 0.72
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
+const tint = () => { const f = Math.floor(wrap(d)), t = wrap(d) - f, a = rgb(TINT[f]), b = rgb(TINT[(f + 1) % N]); return a.map((v, i) => Math.round(v + (b[i] - v) * t)) }
+const resize = () => { dpr = devicePixelRatio || 1; W = innerWidth; H = innerHeight; c.width = W * dpr; c.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0) }
+addEventListener("resize", resize); resize()
+
+const enemy = (xx, dim) => ({ type: "enemy", x: xx, dim, dead: false })
+const reset = () => { S = { objs: [], wait: false, released: false, done: 0, fail: 0, msg: "", py: 0, vy: 0, dim0: cur(), n: 0, draw: 0, bullet: 0, burst: 0, peeked: false }; steps[si]?.init() }
+const steps = [
+  { t: "jump", text: "a rock is coming. press space to jump it", keys: ["Space"],
+    init() { S.objs = [{ type: "rock", x: W + 40, dim: cur() }] } },
+  { t: "phase to dodge", text: "an enemy rushes you. press e or q, or scroll the wheel, to slip into another dimension", keys: ["KeyQ", "KeyE", "wheel"],
+    init() { S.objs = [enemy(W + 40, cur())] } },
+  { t: "peek", text: "scroll a little. the next dimension fades in and you see what waits there", keys: ["wheel"],
+    init() { S.objs = [enemy(W * 0.6, (cur() + 1) % N)]; S.wait = true } },
+  { t: "it loops", text: "keep pressing e. the five dimensions form a ring, after the last comes the first", keys: ["KeyE", "KeyQ", "wheel"],
+    init() { S.objs = []; S.last = cur() } },
+  { t: "strike back", text: "an enemy in your dimension. click to shoot. r reloads", keys: ["mouse"],
+    init() { S.objs = [enemy(W + 40, cur())] } },
+  { t: "bow launch", text: "hold the mouse to draw the bow. release at full draw while standing: it launches you. aim down to go up, a little low to fly far", keys: ["mouse"],
+    init() { S.objs = [] } },
+]
+reset()
+
+// input
+const press = code => { keyT[code] = now }
+addEventListener("keydown", e => {
+  if (e.repeat) return; press(e.code)
+  if (e.code === "KeyQ") target = Math.round(target) - 1
+  if (e.code === "KeyE") target = Math.round(target) + 1
+  if (e.code === "Space") { e.preventDefault(); if (steps[si]?.t === "jump" && !S.released && !S.fail) { S.released = true; S.vy = -900 * k() } }
+  if (e.code === "KeyR" && si >= steps.length) { si = 0; reset() }
+})
+addEventListener("wheel", e => { e.preventDefault(); lastWheel = now; press("wheel"); target += e.deltaY * 0.004 }, { passive: false })
+addEventListener("contextmenu", e => e.preventDefault())
+addEventListener("mousedown", e => {
+  if (e.button !== 0 || e.target.tagName === "A") return; press("mouse"); S.down = true
+  if (steps[si]?.t === "strike back" && !S.released && !S.fail) { S.released = true; S.bullet = 0.001 }
+})
+addEventListener("mouseup", () => {
+  S.down = false; const t = steps[si]?.t
+  if (t === "bow launch" && S.draw > 0 && !S.launched) {
+    if (S.draw >= 0.99) { S.launched = true; S.vy = -1250 * k(); S.msg = "" } else S.msg = "keep holding until the bar is full"
+    S.draw = 0
+  }
+})
+
+const fail = msg => { S.fail = 1.4; S.msg = msg }
+const next = () => { si++; reset(); if (si >= steps.length) document.getElementById("play").style.display = "block" }
+
+const update = dt => {
+  d += (target - d) * Math.min(1, 16 * dt)
+  if (now - lastWheel > 0.45) target = Math.round(target)
+  const st = steps[si]; if (!st) return
+  if (S.fail > 0) { S.fail -= dt; if (S.fail <= 0) reset(); return }
+  if (S.done > 0) { S.done += dt; if (S.done > 1.6) next(); return }
+  // the player is only ever lifted by a jump or a launch
+  if (S.vy || S.py) { S.vy += 2300 * k() * dt; S.py += S.vy * dt; if (S.py >= 0) { S.py = 0; S.vy = 0; if (S.launched) { S.done = 0.001; S.msg = "that is the fastest way up" } } }
+  const o = S.objs[0], v = 330 * k()
+  if (st.t === "jump" || st.t === "phase to dodge" || st.t === "strike back") {
+    if (!S.wait && !S.released && o.x - px() < (st.t === "jump" ? 150 : 330) * k()) S.wait = true
+    if (st.t === "phase to dodge" && cur() !== S.dim0) { S.released = true; S.wait = false; S.msg = "it only exists in dimension " + (o.dim + 1) }
+    if (S.released) S.wait = false
+    if (!S.wait && !o.dead) o.x -= v * (st.t === "strike back" && !S.released ? 0.6 : 1) * dt
+    if (st.t === "strike back" && S.bullet) { S.bullet += dt; if (S.bullet > 0.16 && !o.dead) { o.dead = true; S.burst = 0.001; S.done = 0.001; S.msg = "" } }
+    if (!o.dead && o.x < px() + 24 * k() && o.x > px() - 40 * k() && gap(o.dim) < 0.5 && S.py > -50 * k()) return fail(st.t === "jump" ? "too late. jump earlier" : "it got you. try again")
+    if (o.x < px() - 120 * k() && !S.done) { S.done = 0.001 }
+  }
+  if (st.t === "peek") {
+    if (Math.abs(d - Math.round(d)) > 0.25) S.peeked = true
+    if (S.peeked && Math.abs(d - Math.round(d)) < 0.05 && now - lastWheel > 0.6) { S.done = 0.001; S.msg = "a flick only peeks, then springs back. a longer scroll commits" }
+  }
+  if (st.t === "it loops") {
+    if (cur() !== S.last) { S.n++; S.last = cur(); if (S.n >= N) { S.done = 0.001; S.msg = "five switches and you are home" } }
+  }
+  if (st.t === "bow launch" && S.down && !S.launched) S.draw = Math.min(1, S.draw + dt / 0.55)
+  if (S.burst) S.burst += dt
+}
+
+const caps = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["Space", "space", 96], ["wheel", "scroll", 84], ["mouse", "click", 70]]
+const draw = () => {
+  const [r, g, b] = tint(), st = steps[si], gH = gy()
+  const sky = x.createLinearGradient(0, 0, 0, gH); sky.addColorStop(0, `rgb(${r * 0.35 + 150},${g * 0.35 + 160},${b * 0.35 + 175})`); sky.addColorStop(1, `rgb(${r * 0.6 + 100},${g * 0.6 + 100},${b * 0.6 + 100})`)
+  x.fillStyle = sky; x.fillRect(0, 0, W, gH); x.fillStyle = `rgb(${r},${g},${b})`; x.fillRect(0, gH, W, H - gH); x.fillStyle = `rgba(0,0,0,.18)`; x.fillRect(0, gH, W, 5)
+  x.textAlign = "center"
+  if (!st) { // summary
+    x.fillStyle = "rgba(8,12,16,.78)"; x.fillRect(0, 0, W, H); x.fillStyle = "#fff"; x.font = "700 56px ui-sans-serif,system-ui,sans-serif"; x.fillText("you are ready", W / 2, H * 0.2)
+    x.font = "22px ui-sans-serif,system-ui,sans-serif"; x.fillStyle = "rgba(255,255,255,.85)"
+    ;["beacons: five pylons, each lives in one dimension. light them in the order shown", "the wrong one throws you away and sends a swarm", "kills heal you, and drop powerups that stack", "1 pistol, 2 bow, 3 sword, g grenade or tnt", "c slides, hold right mouse to glide, run into a boulder to wall run", "press r to replay the tutorial"].forEach((l, i) => x.fillText(l, W / 2, H * 0.34 + i * 40))
+    return
+  }
+  // objects, solid in your dimension and an outline ghost while you slide toward theirs
+  for (const o of S.objs) {
+    if (o.dead) continue
+    const a = Math.max(0, 1 - gap(o.dim) * 1.15), solid = gap(o.dim) < 0.5
+    if (a <= 0) continue
+    x.save(); x.globalAlpha = solid ? 1 : Math.min(1, a * 1.4) * 0.9
+    const w = (o.type === "rock" ? 60 : 46) * k(), h = (o.type === "rock" ? 50 : 76) * k(), ex = o.x, ey = gH - h
+    if (solid) { x.fillStyle = o.type === "rock" ? "#2a2f36" : "#15181c"; x.fillRect(ex - w / 2, ey, w, h); if (o.type === "enemy") { x.fillStyle = "#e8c36a"; x.fillRect(ex - w / 2, ey + 8 * k(), w, 8 * k()) } }
+    else { x.strokeStyle = "#ffe9a0"; x.lineWidth = 3; x.strokeRect(ex - w / 2, ey, w, h); x.shadowColor = "#ffe9a0"; x.shadowBlur = 18; x.strokeRect(ex - w / 2, ey, w, h) }
+    x.restore()
+  }
+  if (S.burst) { x.fillStyle = "#e8c36a"; for (let i = 0; i < 14; i++) { const a = i * 0.9, rr = S.burst * 260 * k() * (0.4 + (i % 4) * 0.2); x.fillRect(S.objs[0].x + Math.cos(a) * rr, gH - 38 * k() + Math.sin(a) * rr, 6, 6) } }
+  if (S.bullet) { x.fillStyle = "#fff"; const o = S.objs[0], bx = px() + (o.x - px()) * Math.min(1, S.bullet / 0.16); x.fillRect(bx - 14, gH - 50 * k() + S.py - 1, 28, 3) }
+  // player
+  const pw = 30 * k(), ph = 64 * k(), py = gH - ph + S.py
+  x.fillStyle = S.fail > 0 ? "#c0392b" : "#e9eef2"; x.fillRect(px() - pw / 2, py, pw, ph); x.fillStyle = "#111"; x.fillRect(px() + pw / 2, py + 18 * k(), 26 * k(), 7 * k())
+  if (S.draw > 0) { x.fillStyle = "rgba(0,0,0,.45)"; x.fillRect(px() - 60, py - 26, 120, 8); x.fillStyle = S.draw >= 0.99 ? "#e8c36a" : "#fff"; x.fillRect(px() - 60, py - 26, 120 * S.draw, 8) }
+  // header
+  x.fillStyle = "rgba(255,255,255,.7)"; x.font = "15px ui-monospace,monospace"; x.fillText(`${si + 1} / ${steps.length}`, W / 2, 40)
+  x.fillStyle = "#fff"; x.font = "700 38px ui-sans-serif,system-ui,sans-serif"; x.shadowColor = "rgba(0,0,0,.4)"; x.shadowBlur = 10; x.fillText(st.t, W / 2, 90)
+  x.font = "22px ui-sans-serif,system-ui,sans-serif"; const words = st.text.split(" "); let line = "", ly = 130
+  for (const w2 of words) { if (x.measureText(line + w2).width > W * 0.7) { x.fillText(line, W / 2, ly); line = ""; ly += 30 } line += w2 + " " } x.fillText(line, W / 2, ly); x.shadowBlur = 0
+  if (S.msg) { x.fillStyle = "#fff"; x.font = "700 24px ui-sans-serif,system-ui,sans-serif"; x.fillText(S.msg, W / 2, gH + (H - gH) * 0.4) }
+  // dimension indicator, a ring so the loop is visible; bigger while learning it
+  const big = st.t === "it loops", cx = W / 2, cy = big ? H * 0.42 : H * 0.16 + 150, rr = big ? 90 : 0
+  if (big) {
+    x.strokeStyle = "rgba(255,255,255,.5)"; x.lineWidth = 2; x.beginPath(); x.arc(cx, cy, rr, 0, 7); x.stroke()
+    for (let i = 0; i < N; i++) { const a = (i / N) * 6.2832 - 1.5708; x.fillStyle = i === cur() ? "#fff" : "rgba(255,255,255,.55)"; x.fillRect(cx + Math.cos(a) * rr - 8, cy + Math.sin(a) * rr - 8, 16, 16) }
+    const a = (wrap(d) / N) * 6.2832 - 1.5708; x.fillStyle = "#fff"; x.beginPath(); x.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 9, 0, 7); x.fill()
+    x.font = "700 44px ui-monospace,monospace"; x.fillText(`${S.n} / ${N}`, cx, cy + 14)
+  } else {
+    for (let i = 0; i < N; i++) { x.fillStyle = i === cur() ? "#fff" : "rgba(255,255,255,.4)"; x.fillRect(cx - 70 + i * 32, H * 0.16 + 150, 20, i === cur() ? 6 : 3) }
+  }
+  // key caps: lit while pressed, pulsing while awaited
+  const total = caps.reduce((s2, cp) => s2 + cp[2] + 8, 0); let kx = W / 2 - total / 2; x.font = "17px ui-monospace,monospace"
+  for (const [code, label, cw] of caps) {
+    const lit = now - (keyT[code] ?? -9) < 0.26, wanted = st.keys.includes(code), pulse = wanted ? 0.5 + 0.5 * Math.sin(now * 6) : 0
+    x.fillStyle = lit ? "#fff" : `rgba(0,0,0,${0.45 - pulse * 0.1})`; x.fillRect(kx, H - 96, cw, 46)
+    if (wanted && !lit) { x.strokeStyle = `rgba(255,255,255,${0.4 + pulse * 0.6})`; x.lineWidth = 2; x.strokeRect(kx + 1, H - 95, cw - 2, 44) }
+    x.fillStyle = lit ? "#111" : "rgba(255,255,255,.9)"; x.fillText(label, kx + cw / 2, H - 66); kx += cw + 8
+  }
+}
+let last = performance.now()
+const loop = t => { requestAnimationFrame(loop); const dt = Math.min(0.05, (t - last) / 1000); last = t; now += dt; update(dt); draw() }
+requestAnimationFrame(loop)
+</script>

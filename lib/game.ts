@@ -42,7 +42,7 @@ const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
 }
 
 export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void) {
-  const idle = { stop: () => {}, tutorial: () => {} }
+  const idle = { stop: () => {}, begin: () => {} }
   if (signal.aborted) return idle
   const ctx = hud.getContext("2d")!
   let loaded = 0; status(0, "loading textures and plants")
@@ -727,28 +727,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     p.y = Math.min(p.y, 80)
   }
 
-  // optional guided tutorial: each step completes when the player does the thing
   const keyT: Record<string, number> = {}
-  let tut = -1, tutT = 0, tutBase = { x: 0, z: 0, nd: 0, n: 0, swaps: 0 }
-  const TUT: [string, () => boolean][] = [
-    ["wasd to move, mouse to look", () => Math.hypot(st.pos.x - tutBase.x, st.pos.z - tutBase.z) > 12],
-    ["space to jump, space again in the air to double jump", () => st.jumps >= 1 && !st.ground],
-    ["land and jump again right away: bunny hops build speed", () => st.hops >= 2],
-    ["hold c while running to slide", () => st.slide],
-    ["run at a boulder to wall run, space jumps off", () => st.wallT > 0],
-    ["press e, q or scroll to phase into another dimension", () => tutBase.n >= 1],
-    ["keep going: the five dimensions form a ring, it loops", () => tutBase.n >= 5],
-    ["click to shoot. 1 pistol, 2 bow, 3 sword, g grenade or tnt", () => st.fire],
-    ["enemies live in one dimension. phase out to dodge, phase back to strike", () => tutT > 6],
-  ]
-  const tutorial = () => { tut = 0; tutT = 0; tutBase = { x: st.pos.x, z: st.pos.z, nd: nd(), n: 0, swaps: 0 } }
-  const tutTick = (dt: number) => {
-    if (tut < 0) return
-    tutT += dt; if (nd() !== tutBase.nd) { tutBase.nd = nd(); tutBase.n++ }
-    if (TUT[tut][1]()) { tut++; tutT = 0; tutBase.x = st.pos.x; tutBase.z = st.pos.z; tutBase.n = 0; if (tut >= TUT.length) { tut = -1; banner("tutorial done", 3) } }
-  }
   const frame = (w: number, h: number, dt: number) => {
-    time += dt; uTime.value = time; tutTick(dt)
+    time += dt; uTime.value = time
     const p = st.pos, speed = Math.hypot(st.vel.x, st.vel.z), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
     st.roll += ((st.wallT > 0 ? -0.14 * st.wn.dot(right) : 0) - st.roll) * Math.min(1, 10 * dt)
     st.kick = Math.max(0, st.kick - dt * 14); st.hit = Math.max(0, st.hit - dt); st.hurt = Math.max(0, st.hurt - dt); st.flash = Math.max(0, st.flash - dt)
@@ -899,18 +880,17 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + Math.cos(ang(wrap(d))) * rr, cy + Math.sin(ang(wrap(d))) * rr, 6, 0, Math.PI * 2); ctx.fill()
     ctx.textAlign = "center"; ctx.font = "22px ui-monospace, monospace"; ctx.fillText(`${nd() + 1}`, cx, cy + 8); ctx.textAlign = "left"
     }
-    if (dbg.showKeys || tut >= 0) {
+    if (dbg.showKeys) {
       const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["", "", 20], ["Wheel", "scroll", 84]]
       let x = w / 2 - caps.reduce((a, c) => a + c[2] + 6, 0) / 2, y = h - 72; ctx.textAlign = "center"; ctx.font = "17px ui-monospace, monospace"
       for (const [c, label, cw] of caps) { if (c) { const on = c === "Wheel" ? now - lastWheel < 260 : lit(c); ctx.fillStyle = on ? "#fff" : "rgba(0,0,0,0.45)"; ctx.fillRect(x, y, cw, 44); ctx.fillStyle = on ? "#111" : "rgba(255,255,255,0.85)"; ctx.fillText(label, x + cw / 2, y + 28) } x += cw + 6 }
       ctx.textAlign = "left"
     }
-    if (tut >= 0 && tut < TUT.length) { ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "13px ui-monospace, monospace"; ctx.fillText(`tutorial ${tut + 1}/${TUT.length}   t skips`, w / 2, h - 96); ctx.fillStyle = "#fff"; ctx.font = "700 22px ui-sans-serif, system-ui, sans-serif"; ctx.shadowBlur = 8; ctx.fillText(TUT[tut][0], w / 2, h - 124); ctx.shadowBlur = 3; ctx.textAlign = "left" }
   }
 
   let raf = 0, last = performance.now(), acc = 0
   let calm = 0, lastNd = 2
-  let manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
+  let started = false, manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
   const tick = (dt: number) => {
     acc += dt
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight, rp = dpr * scale
@@ -922,8 +902,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     budget = 2
     // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
     if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
-    while (acc > DT) { acc -= DT; step() }
-    enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); shrineTick(Math.min(dt, 0.05)); stream()
+    // the world waits on the menu and whenever the pointer is released
+    if (manual || (started && document.pointerLockElement)) {
+      while (acc > DT) { acc -= DT; step() }
+      enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); shrineTick(Math.min(dt, 0.05)); stream()
+    } else acc = 0
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
   }
   const loop = (now: number) => {
@@ -949,7 +932,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (e.code === "KeyM" && !e.repeat) sfx.toggleMute()
     if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
     keyT[e.code] = performance.now()
-    if (e.code === "KeyT") tut = -1
     if (e.code === "KeyR" && weapon === "pistol") startReload()
     if (e.code === "KeyQ") target = Math.round(target) - 1
     if (e.code === "KeyE") target = Math.round(target) + 1
@@ -971,7 +953,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
   status(1, "ready")
-  return { tutorial, stop: () => {
+  return { begin: () => { started = true }, stop: () => {
     cancelAnimationFrame(raf); post.composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)
