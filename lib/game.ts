@@ -602,6 +602,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
             } else {
               resetShrine(sh); sfx.play("hurt"); st.shake = 0.8; banner("wrong order: the shrine resets and sends a swarm", 3)
               summon("swarmer", 7, 9, 15, nd(), 0, Math.PI * 2, p)
+              const ax = p.x - py.x, az = p.z - py.z, al = Math.hypot(ax, az) || 1; st.vel.set(ax / al * 16, 17, az / al * 16); st.ground = false; st.wallT = 0; st.jumps = 1; st.shake = 1
             }
           }
         }
