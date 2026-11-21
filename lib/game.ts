@@ -359,7 +359,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.dim !== dim || Math.abs(e.pos.x - pos.x) > radius || Math.abs(e.pos.z - pos.z) > radius) continue
       const dx = e.pos.x - pos.x, dy = e.pos.y + 1.5 - pos.y, dz = e.pos.z - pos.z, dist = Math.hypot(dx, dy, dz)
       if (dist > radius) continue
-      e.hp -= dmg * dm() * (1 - 0.65 * dist / radius); e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
+      e.hp -= dmg * dm() * (1 - 0.65 * dist / radius) * (e.kind === "boss" || e.kind === "guardian" ? 0.4 : 1); // bosses shrug off most of a blast
+ e.hitT = 0.25; const k = (1 - dist / radius) * 4 / Math.max(0.5, Math.hypot(dx, dz)); e.pos.x += dx * k; e.pos.z += dz * k
       if (e.hp <= 0) killWalker(e)
     }
     for (const b of bombs) if (b.kind === "tnt" && b.fuse > 0.12 && b.dim === dim && b.pos.distanceTo(pos) < chain && b.pos !== pos) b.fuse = 0.1 + Math.random() * 0.15
@@ -428,7 +429,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z, nd())) / 10))
   const hurtPlayer = (e: Enemy, dmg: number, why: string) => {
     if (practice || st.inv > 0 || st.deadT > 0) return // practice mode cannot hurt you
-    dmg *= 1 + 0.4 * st.level
+    dmg *= (1 + 0.4 * st.level) * (e.kind === "boss" || e.kind === "guardian" ? 1.35 : 1)
     st.cause = why; sfx.play("hurt"); st.hp -= dmg; st.hurt = 0.35; hurts.push({ x: e.pos.x - st.pos.x, z: e.pos.z - st.pos.z, t: 1 })
   }
   const enemyTick = (dt: number) => {
@@ -461,7 +462,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
         e.fireT -= dt
       }
-      const spd = (e.kind === "guardian" ? e.speed * gsp : (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level) * (practice ? 0.25 : 1) // practice enemies crawl
+      if (e.kind === "boss") { const av = tntAvoid(e); if (av) { mx = av.x; mz = av.z; moving = true; gsp = 1.8 } }
+      const spd = (e.kind === "guardian" ? e.speed * gsp : e.kind === "boss" && gsp > 1 ? e.speed * gsp : (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level) * (practice ? 0.25 : 1) // practice enemies crawl
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       if (e.kind !== "boss") rocksNear(e) // the warden glides through rock
       const gy = terrainY(e.pos.x, e.pos.z, e.dim)
@@ -587,7 +589,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const dim = (nd() + 2) % N, ay = st.yaw + (Math.random() - 0.5) * 1.2, pos = new V(st.pos.x - Math.sin(ay) * 22, 0, st.pos.z - Math.cos(ay) * 22), e = makeEnemy("boss", world.foe, dim, pos)
     const bx: Box[] = []; for (const ch of chunks.values()) bx.push(...ch.boxes); clearRock(bx, dim, pos, e.r)
     pos.y = terrainY(pos.x, pos.z, dim); e.mesh.position.copy(pos)
-    e.maxHp = e.hp = 150 + 60 * st.level; e.shiftT = 6.5; e.fireT = 1.2
+    e.maxHp = e.hp = 450 + 130 * st.level; e.shiftT = 6.5; e.fireT = 1.2
     const ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) { sh.state = "idle"; resetShrine(sh); return }
     ghostify(e); ch.group.add(e.mesh); ch.enemies.push(e); sh.boss = e
     sfx.play("bigboom", pos, 1.2); fx.spark(pos.clone().setY(pos.y + 2), 200, new V(0, 1, 0), new THREE.Color(0xffd070)); st.shake = 1.4
@@ -606,6 +608,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const bossTick = (e: Enemy, dt: number, dist: number) => {
     // it never lets you lose it: once you outrun it, it phases in beside you
     e.ai = e.ai ?? {}; e.ai.blink = (e.ai.blink ?? 0) - dt
+    const enr = e.hp < (e.maxHp ?? e.hp) * 0.5; if (enr && !e.ai.enraged) { e.ai.enraged = 1; banner("the warden enrages", 2); sfx.play("bigboom", e.pos, 1.3); st.shake = Math.max(st.shake, 1) }
     if (dist > 38 && e.ai.blink <= 0) {
       e.ai.blink = 4; const an = Math.random() * Math.PI * 2; fx.spark(new V(e.pos.x, e.pos.y + 3, e.pos.z), 50, new V(0, 1, 0), GLOWC[e.dim])
       e.pos.x = st.pos.x + Math.cos(an) * 16; e.pos.z = st.pos.z + Math.sin(an) * 16; e.pos.y = terrainY(e.pos.x, e.pos.z, e.dim); sfx.play("phase", e.pos, 1.2); fx.spark(new V(e.pos.x, e.pos.y + 3, e.pos.z), 50, new V(0, 1, 0), GLOWC[e.dim])
@@ -613,13 +616,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     e.shiftT = (e.shiftT ?? 6) - dt
     if (e.shiftT < 1.3 && Math.random() < 0.7) fx.spark(new V(e.pos.x + (Math.random() - 0.5) * 5, e.pos.y + 1 + Math.random() * 6, e.pos.z + (Math.random() - 0.5) * 5), 2, new V(0, 1, 0), GLOWC[e.dim])
     if (e.shiftT <= 0) shiftBoss(e)
+    if (enr && e.shiftT > 3.2) e.shiftT = 3.2
     // orb volley: three shots in a spread
     e.maxHp = e.maxHp ?? e.hp
     e.t1 = e.t1
     if (dist < 60 && ((e.volT = (e.volT ?? 1.5) - dt) <= 0) && clearShot(e, nd())) {
-      e.volT = 1.9
+      e.volT = enr ? 1.1 : 1.9
       const from = e.turret.getWorldPosition(new V()), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
-      for (let k = -1; k <= 1; k++) { const tt = to.clone(); tt.x += k * 3 * Math.cos(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); tt.z -= k * 3 * Math.sin(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); beam(from, tt, 0.07, 0.14) }
+      for (let k = enr ? -2 : -1; k <= (enr ? 2 : 1); k++) { const tt = to.clone(); tt.x += k * 3 * Math.cos(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); tt.z -= k * 3 * Math.sin(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); beam(from, tt, 0.07, 0.14) }
       sfx.play("zap", from, 1.2); if (Math.random() < 0.75 * dodge()) hurtPlayer(e, 13, "blasted by the warden")
     }
   }
@@ -638,42 +642,54 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
   }
   // the five guardians, one per dimension, each with its own way of fighting
+  // bosses step away from planted tnt, so the plant-and-shoot trick has to be sprung on something they cannot see coming
+  const tntAvoid = (e: Enemy) => {
+    for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim) { const dx = e.pos.x - b.pos.x, dz = e.pos.z - b.pos.z, d2 = Math.hypot(dx, dz); if (d2 < 11) return { x: dx / (d2 || 1), z: dz / (d2 || 1) } }
+    return null
+  }
   const GUARD_NAMES = ["stomper", "sniper", "summoner", "charger", "blinker"]
   const guardianAI = (e: Enemy, dt: number, dx: number, dz: number, dist: number) => {
     const a = (e.ai ??= {}), v = e.variant ?? 0, ux = dx / dist, uz = dz / dist, from = new V(e.pos.x, e.pos.y + 4, e.pos.z)
-    a.t = (a.t ?? 2.5) - dt
+    const enr = e.hp < (e.maxHp ?? e.hp) * 0.5
+    if (enr && !a.enraged) { a.enraged = 1; banner(`the ${GUARD_NAMES[v]} enrages`, 2); sfx.play("bigboom", e.pos, 1); st.shake = Math.max(st.shake, 0.8) }
+    a.t = (a.t ?? 2.5) - dt * (enr ? 1.7 : 1)
     let moving = dist < 90 && dist > 6, mx = ux, mz = uz, spd = 1
+    const av = tntAvoid(e); if (av) return { moving: true, mx: av.x, mz: av.z, spd: 2.2 }
     if (e.home && Math.hypot(e.pos.x - e.home.x, e.pos.z - e.home.z) > 55) { const hx = e.home.x - e.pos.x, hz = e.home.z - e.pos.z, hl = Math.hypot(hx, hz) || 1; mx = hx / hl; mz = hz / hl; moving = true; return { moving, mx, mz, spd } }
     const live = e.dim === nd()
     if (v === 0) { // stomper: winds up, then a shockwave that only hurts if you are on the ground
       if (a.tele > 0) { moving = false; e.fireT = 0.9 * (a.tele / 0.7); if ((a.tele -= dt) <= 0) {
         sfx.play("bigboom", e.pos, 0.8); st.shake = Math.max(st.shake, live ? 0.6 : 0)
         for (let k = 0; k < 28; k++) { const an = (k / 28) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 11, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 11), 3, new V(0, 1, 0), DUST) }
-        if (live && st.ground && dist < 13) { hurtPlayer(e, 24, "crushed by a stomper"); st.vel.y = 10; st.ground = false } } }
+        if (live && st.ground && dist < 13) { hurtPlayer(e, 24, "crushed by a stomper"); st.vel.y = 10; st.ground = false }
+        if (enr) a.ring2 = 0.7 } }
+      else if (a.ring2 > 0 && (a.ring2 -= dt) <= 0) { sfx.play("bigboom", e.pos, 0.8); for (let k = 0; k < 36; k++) { const an = (k / 36) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 17, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 17), 3, new V(0, 1, 0), DUST) }
+        if (live && st.ground && dist < 18 && dist > 5) { hurtPlayer(e, 22, "crushed by a stomper"); st.vel.y = 10; st.ground = false } }
       else if (a.t <= 0 && dist < 22) { a.tele = 0.7; a.t = 4.2 }
     } else if (v === 1) { // sniper: stays far away and locks a telegraphed shot you must step out of
       moving = dist > 44 || dist < 28; if (dist < 28) { mx = -ux; mz = -uz }
       if (a.tele > 0) { moving = false; a.beamT = (a.beamT ?? 0) - dt; if (a.beamT <= 0) { a.beamT = 0.12; beam(from, new V(a.lx, a.ly, a.lz), 0.015, 0.14) }
-        if ((a.tele -= dt) <= 0) { beam(from, new V(a.lx, a.ly, a.lz), 0.09, 0.25); sfx.play("zap", e.pos, 1.3); if (live && Math.hypot(st.pos.x - a.lx, st.pos.z - a.lz) < 2.4 && Math.abs(st.pos.y + 1 - a.ly) < 3.5) hurtPlayer(e, 30, "sniped") } }
+        if ((a.tele -= dt) <= 0) { beam(from, new V(a.lx, a.ly, a.lz), 0.09, 0.25); sfx.play("zap", e.pos, 1.3); if (live && Math.hypot(st.pos.x - a.lx, st.pos.z - a.lz) < 2.4 && Math.abs(st.pos.y + 1 - a.ly) < 3.5) hurtPlayer(e, 30, "sniped")
+          if (enr && (a.burst = (a.burst ?? 0) + 1) < 3) { a.tele = 0.55; a.lx = st.pos.x + st.vel.x * 0.5; a.ly = st.pos.y + 1.2; a.lz = st.pos.z + st.vel.z * 0.5 } else a.burst = 0 } }
       else if (a.t <= 0 && dist < 80 && live && clearShot(e)) { a.tele = 1; a.t = 3.6; a.lx = st.pos.x; a.ly = st.pos.y + 1.2; a.lz = st.pos.z }
     } else if (v === 2) { // summoner: keeps its distance, calls swarmers, and mends itself while they live
       moving = dist > 30 || dist < 20; if (dist < 20) { mx = -ux; mz = -uz }
-      if (a.t <= 0) { a.t = 6; summon("swarmer", 3 + Math.min(3, st.level), 4, 8, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }
+      if (a.t <= 0) { a.t = 6; summon("swarmer", 4 + Math.min(4, st.level) + (enr ? 4 : 0), 4, 8, e.dim, 0, Math.PI * 2, e.pos); if (enr) summon("flyer", 2, 6, 10, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }
       let kids = 0; for (const c of nearChunks(2)) for (const o of c.enemies) if (o.kind === "swarmer" && o.dim === e.dim && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 35) kids++
       if (kids) e.hp = Math.min(e.maxHp ?? e.hp, e.hp + 7 * dt)
     } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed
       if (a.stun > 0) { a.stun -= dt; moving = false }
       else if (a.chg > 0) { a.chg -= dt; mx = a.cx; mz = a.cz; spd = 6.5; moving = true
         if (live && dist < 4 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 30, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false }
-        if (a.chg <= 0) a.stun = 1.6 }
+        if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.35; a.hit = 0 } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
       else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; a.cx = ux; a.cz = uz; sfx.play("surge", e.pos, 1) } }
       else if (a.t <= 0 && dist < 45 && dist > 8) { a.tele = 0.9; a.t = 5 }
     } else { // blinker: hops around you and throws a ring of slow orbs
       moving = false
-      if (a.t <= 0) { a.t = 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
+      if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
         fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; sfx.play("phase", e.pos, 1)
         const org = new V(e.pos.x, terrainY(e.pos.x, e.pos.z, e.dim) + 3, e.pos.z)
-        for (let k = 0; k < 8; k++) { const t2 = (k / 8) * Math.PI * 2; spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), 12, 10) } }
+        const nOrb = enr ? 14 : 8; for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2 + (enr ? a.t : 0); spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 10) } }
     }
     return { moving, mx, mz, spd }
   }
@@ -684,7 +700,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let best = { x: py.x + 9, z: py.z, c: -1e9 }
     for (let k = 0; k < 8; k++) { const an = (k / 8) * Math.PI * 2, x = py.x + Math.cos(an) * 10, z = py.z + Math.sin(an) * 10, c = clearance(py.dim, x, z); if (c > best.c) best = { x, z, c } }
     const pos = new V(best.x, terrainY(best.x, best.z, py.dim), best.z), e = makeEnemy("guardian", world.foe, py.dim, pos), ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) return
-    e.variant = py.dim; e.hp = e.maxHp = 80 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
+    e.variant = py.dim; e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
     tintGuardian(e); ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
   }
   const bossDown = (e: Enemy) => {
@@ -693,6 +709,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const k = (st.level - 1) % 4, text = ["max health +20", "damage +20%", "move speed +8%", "cooldowns -15%"][k]
     if (k === 0) st.maxHp += 20; else if (k === 1) st.boon.dmg++; else if (k === 2) st.boon.spd++; else st.boon.cd++
     st.hp = st.maxHp; banner(`warden defeated. level ${st.level}. ${text}`, 4.5); sfx.play("ready")
+    // the first warden you kill ends the run: freeze the world and hand the stats to the page
+    if (!practice && st.wins++ === 0) {
+      document.exitPointerLock()
+      window.dispatchEvent(new CustomEvent("phase-victory", { detail: { seconds: Math.round(st.runT), deaths: st.deaths, kills: st.kills, powerups: st.items, shrines: st.level, farthest: Math.round(best) } }))
+    }
   }
   const shrineTick = (dt: number) => {
     const p = st.pos, sx0 = Math.floor(p.x / SS), sz0 = Math.floor(p.z / SS)
@@ -709,11 +730,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
             // the guardian defends its crystal: it steps in front of it when you come close
             const g = py.guard, dPy = Math.hypot(p.x - py.x, p.z - py.z)
             if (g && nd() === py.dim && dPy < 16 && Math.hypot(g.pos.x - py.x, g.pos.z - py.z) > 10 && ((g.ai ??= {}).def = (g.ai.def ?? 0) - dt) <= 0) {
-    // the first warden you kill ends the run: freeze the world and hand the stats to the page
-    if (!practice && st.wins++ === 0) {
-      document.exitPointerLock()
-      window.dispatchEvent(new CustomEvent("phase-victory", { detail: { seconds: Math.round(st.runT), deaths: st.deaths, kills: st.kills, powerups: st.items, shrines: st.level, farthest: Math.round(best) } }))
-    }
               g.ai.def = 5; const ax = (p.x - py.x) / (dPy || 1), az = (p.z - py.z) / (dPy || 1); fx.spark(new V(g.pos.x, g.pos.y + 3, g.pos.z), 30, new V(0, 1, 0), GLOWC[g.dim]); g.pos.x = py.x + ax * 6; g.pos.z = py.z + az * 6; sfx.play("phase", g.pos, 1)
             }
           }
@@ -767,6 +783,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     d += (target - d) * Math.min(1, 16 * DT)
     unstick(bx, st.slide ? 1 : 1.8)
     if (practice) st.hp = st.maxHp
+    st.runT += DT
     // each dimension has its own ground: phasing into a higher landscape lifts you onto it instead of burying you
     { const gh = terrainY(st.pos.x, st.pos.z, nd()); if (st.pos.y < gh) { st.pos.y = gh; if (st.vel.y < 0) st.vel.y = 0 } }
 
@@ -783,7 +800,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (m > cap) { v.x *= cap / m; v.z *= cap / m }
     }
     const glide = !st.ground && st.glide && v.y < 0 && st.wallT <= 0
-    st.runT += DT
     if (glide) { v.y = Math.max(v.y, -2); v.x += fwd.x * 12 * DT; v.z += fwd.z * 12 * DT }
 
     st.coyote = st.ground ? 0.1 : st.coyote - DT
