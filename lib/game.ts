@@ -697,10 +697,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed
       if (a.stun > 0) { a.stun -= dt; moving = false }
       else if (a.chg > 0) { a.chg -= dt; mx = a.cx; mz = a.cz; spd = 6.5; moving = true
-        if (live && dist < 4 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 30, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false }
-        if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.35; a.hit = 0 } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
-      else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; a.cx = ux; a.cz = uz; sfx.play("surge", e.pos, 1) } }
-      else if (a.t <= 0 && dist < 45 && dist > 8) { a.tele = 0.9; a.t = 5 }
+        if (live && dist < 4.5 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 1e4, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false } // a direct hit is lethal
+        if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.45; a.hit = 0; const dd = Math.max(0.01, Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); a.cx = (st.pos.x - e.pos.x) / dd; a.cz = (st.pos.z - e.pos.z) / dd; spawnZone(e, Math.atan2(a.cx, a.cz), 30, 5.5, a.tele) } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
+      else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; sfx.play("surge", e.pos, 1) } }
+      else if (a.t <= 0 && dist < 45 && dist > 8) { // lock the lane, mark it red, then run it down
+        a.tele = enr ? 0.7 : 0.95; a.t = 5; a.cx = ux; a.cz = uz; spawnZone(e, Math.atan2(ux, uz), 30, 5.5, a.tele) }
     } else { // blinker: hops around you and throws a ring of slow orbs
       moving = false
       if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
