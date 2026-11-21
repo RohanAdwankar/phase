@@ -160,7 +160,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
     }
   }
   const blob = (dim: number, x: number, z: number, sx: number, sz: number, rot = 0) => {
-    const o = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), w.ao[dim]); o.position.set(x, terrainY(x, z) + 0.2, z); o.rotation.y = rot; o.scale.set(sx, 1, sz); o.renderOrder = 1; c.geos.push(o.geometry); c.group.add(o)
+    const o = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), w.ao[dim]); o.position.set(x, terrainY(x, z, dim) + 0.2, z); o.rotation.y = rot; o.scale.set(sx, 1, sz); o.renderOrder = 1; c.geos.push(o.geometry); c.group.add(o)
   }
   const near0 = (x: number, z: number, r: number) => Math.hypot(x, z) < r
 
@@ -171,7 +171,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
     const p = geo.attributes.position, uv = geo.attributes.uv
     for (let n = 0; n < p.count; n++) {
       const wx = x0 + CH / 2 + p.getX(n), wz = z0 + CH / 2 + p.getZ(n)
-      p.setXYZ(n, wx, terrainY(wx, wz), wz); uv.setXY(n, wx / 4, wz / 4)
+      p.setXYZ(n, wx, terrainY(wx, wz, dim), wz); uv.setXY(n, wx / 4, wz / 4)
     }
     geo.computeVertexNormals()
     mesh(geo, w.lane[dim], 0, 0, 0, false)
@@ -181,13 +181,13 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       const cxm = (ci + 0.5) * CELL, czm = (cj + 0.5) * CELL
       // standing stones
       if (r() < 0.38 && !near0(cxm, czm, 26)) for (let j = 0; j < 1 + Math.floor(r() * 2); j++) {
-        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z), hx = rad * 0.78
+        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z, dim), hx = rad * 0.78
         const rz2 = rad * (0.8 + 0.4 * r()), ry = r() * 6.28, v = r() * 4; boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, ry, v]]); blob(dim, x, z, rad * 4, rad * 4)
         c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 1.12, h * 0.97, rz2 * 1.12, dim, { sx: rad, sy: h, sz: rz2, ry, set: BOULDERS[Math.floor(v) % BOULDERS.length] }))
       }
       // floating rocks to jump between
       if (r() < 0.3 && !near0(cxm, czm, 20)) {
-        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, y = terrainY(x, z) + 3 + r() * 4
+        const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, y = terrainY(x, z, dim) + 3 + r() * 4
         c.boxes.push({ min: new V(x - 2.3, y, z - 2.3), max: new V(x + 2.3, y + 0.5, z + 2.3), dim })
         boulders(dim, [[x, y + 0.5 - 0.6 * 1.4, z, 3.1, 1.4, 3.1, r() * 6.28, r() * 2]], true)
       }
@@ -199,7 +199,7 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
           const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12), rr = STATS[kind].r
           if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < o.r + rr + 0.6)) continue
           const e = makeEnemy(kind, w.foe, dim, pos)
-          pos.y = terrainY(pos.x, pos.z) + e.fy; e.mesh.position.copy(pos); c.group.add(e.mesh); if (kind !== "flyer") blob(dim, pos.x, pos.z, rr * 3, rr * 3)
+          pos.y = terrainY(pos.x, pos.z, dim) + e.fy; e.mesh.position.copy(pos); c.group.add(e.mesh); if (kind !== "flyer") blob(dim, pos.x, pos.z, rr * 3, rr * 3)
           c.enemies.push(e)
         }
       }
@@ -207,13 +207,13 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
     // fractal maze walls: this chunk owns the lattice lines that fall inside it
     for (const vertical of [true, false]) for (let i = (vertical ? cx : cz) * 2; i < (vertical ? cx : cz) * 2 + 2; i++) for (let j = (vertical ? cz : cx) * 2; j < (vertical ? cz : cx) * 2 + 2; j++) {
       if (!wallAt(dim, vertical, i, j)) continue
-      const wx = vertical ? i * CELL : (j + 0.5) * CELL, wz = vertical ? (j + 0.5) * CELL : i * CELL, ty = terrainY(wx, wz)
+      const wx = vertical ? i * CELL : (j + 0.5) * CELL, wz = vertical ? (j + 0.5) * CELL : i * CELL, ty = terrainY(wx, wz, dim)
       // a wall is a run of overlapping thick boulders along the lattice line, with a collider covering the same footprint
       const list: number[][] = [], n = 6, r = rngFrom(i, j, dim, vertical ? 3 : 4)
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n - 0.5, along = t * CELL * 1.15, h = 6.5 + r() * 5, rad = 3.2 + r() * 1.2, off = (r() - 0.5) * 1.2
         const bx = vertical ? wx + off : wx + along, bz = vertical ? wz + along : wz + off
-        list.push([bx, terrainY(bx, bz) + h * 0.38, bz, rad * (vertical ? 1 : 1.35), h, rad * (vertical ? 1.35 : 1), r() * 6.28, r() * 4])
+        list.push([bx, terrainY(bx, bz, dim) + h * 0.38, bz, rad * (vertical ? 1 : 1.35), h, rad * (vertical ? 1.35 : 1), r() * 6.28, r() * 4])
       }
       boulders(dim, list)
       for (const [bx, by, bz, rx, h, rz, ry, v] of list) c.boxes.push(ellBox(bx, by, bz, rx * 1.12, h * 0.97, rz * 1.12, dim, { sx: rx, sy: h, sz: rz, ry, set: BOULDERS[Math.floor(v) % BOULDERS.length] }))
@@ -222,18 +222,18 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
   }
 
   flushBoulders()
-  for (const e of c.enemies) { clearRock(c.boxes, e.dim, e.pos, e.r); e.pos.y = terrainY(e.pos.x, e.pos.z) + e.fy; e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z) }
+  for (const e of c.enemies) { clearRock(c.boxes, e.dim, e.pos, e.r); e.pos.y = terrainY(e.pos.x, e.pos.z, e.dim) + e.fy; e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z) }
 
-  // trees are shared by every dimension; the full-detail copy shows near the player and a cheap copy further out
-  const tr = rngFrom(cx, cz, 77)
-  for (const [hi, lo] of [["fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
-    const ms = [...Array(2)].map(() => {
-      const x = x0 + tr() * CH, z = z0 + tr() * CH, sz = w.models[hi].box.getSize(new V()), sc = (11 + tr() * 8) / sz.y
-      return mat4(x, terrainY(x, z) - 0.3, z, tr() * 6.28, sc)
-    }).filter(m => { const q = new V().setFromMatrixPosition(m); return !near0(q.x, q.z, 14) })
-    if (!ms.length) continue
-    for (const [id, list] of [[hi, c.lods.hi], [lo, c.lods.lo]] as const) for (const im of place(id, 0, ms)) {
-      const mats = Array.isArray(im.material) ? im.material : [im.material]; mats.forEach(mm => untrack(0, [mm])); list.push(im)
+  // trees stand on each dimension's own ground: the full-detail copy shows near the player and a cheap copy further out
+  for (let dim = 0; dim < N; dim++) {
+    const tr = rngFrom(cx, cz, 77 + dim)
+    for (const [hi, lo] of [["fir_sapling", "fir_sapling_lo"], ["pine_sapling_small", "pine_sapling_lo"], ["fir_sapling_medium", "fir_sapling_medium_lo"]]) {
+      const ms = [...Array(2)].map(() => {
+        const x = x0 + tr() * CH, z = z0 + tr() * CH, sz = w.models[hi].box.getSize(new V()), sc = (11 + tr() * 8) / sz.y
+        return mat4(x, terrainY(x, z, dim) - 0.3, z, tr() * 6.28, sc)
+      }).filter(m => { const q = new V().setFromMatrixPosition(m); return !near0(q.x, q.z, 14) })
+      if (!ms.length) continue
+      for (const [id, list] of [[hi, c.lods.hi], [lo, c.lods.lo]] as const) for (const im of place(id, dim, ms)) list.push(im)
     }
   }
   return c
@@ -246,11 +246,11 @@ export const buildDetail = (w: World, c: Chunk) => {
     const r = rngFrom(c.cx, c.cz, dim, 3)
     for (const [density, under] of [[9, false], [11, true]] as const) {
       const g = new THREE.InstancedBufferGeometry(); g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a)
-      g.instanceCount = Math.round(CH * CH * density); g.boundingSphere = new THREE.Sphere(new V(x0 + CH / 2, terrainY(x0 + CH / 2, z0 + CH / 2) + 0.4, z0 + CH / 2), CH * 0.75)
-      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under); track(dim, gm); c.grass.push(gm)
+      g.instanceCount = Math.round(CH * CH * density); g.boundingSphere = new THREE.Sphere(new V(x0 + CH / 2, terrainY(x0 + CH / 2, z0 + CH / 2, dim) + 0.4, z0 + CH / 2), CH * 0.75)
+      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under, dim); track(dim, gm); c.grass.push(gm)
       d.add(new THREE.Mesh(g, gm))
     }
-    const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z), z) })
+    const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z, dim), z) })
     const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(q => mat4(q.x, q.y, q.z, r() * 6.28, lo + r() * (hi - lo))))
     const place = (id: string, dm: number, ms: THREE.Matrix4[]) => w.models[id].parts.map((p, k) => {
       const im = new THREE.InstancedMesh(p.geo, w.matFor(dm, id, k, p.mat), Math.max(1, ms.length)); im.count = ms.length

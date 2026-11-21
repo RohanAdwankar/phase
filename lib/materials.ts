@@ -41,19 +41,37 @@ export const pbrMaterial = (p: PBR, o: { tint?: number; metalness?: number; norm
   color: o.tint ?? 0xffffff, normalScale: new THREE.Vector2(o.normalScale ?? 1, o.normalScale ?? 1), transparent: true,
 })
 
-// gentle rolling relief shared by the ground mesh and the grass shader so blades sit on the surface
-export const terrainY = (x: number, z: number) => 3.2 * Math.sin(x * 0.034 + 0.7) * Math.sin(z * 0.029 + 2.1) + 1.4 * Math.sin(x * 0.061 - z * 0.047) + 4.5 * Math.sin(x * 0.011 + 1.3) * Math.sin(z * 0.009) + 2.2 * Math.sin(x * 0.023 - z * 0.017) + 0.7 * (Math.sin(x * 0.09 + Math.sin(z * 0.05) * 2) * 0.5 + Math.sin(z * 0.07 + x * 0.03) * 0.5) + 0.25 * Math.sin(x * 0.31 + z * 0.17) * Math.sin(z * 0.23) + 0.06 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
-const TERRAIN_GLSL = `float terrainY(vec2 p){ return 3.2 * sin(p.x * 0.034 + 0.7) * sin(p.y * 0.029 + 2.1) + 1.4 * sin(p.x * 0.061 - p.y * 0.047) + 4.5 * sin(p.x * 0.011 + 1.3) * sin(p.y * 0.009) + 2.2 * sin(p.x * 0.023 - p.y * 0.017) + 0.7 * (sin(p.x * 0.09 + sin(p.y * 0.05) * 2.0) * 0.5 + sin(p.y * 0.07 + p.x * 0.03) * 0.5) + 0.25 * sin(p.x * 0.31 + p.y * 0.17) * sin(p.y * 0.23) + 0.06 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
+// Relief shared by the ground mesh, the colliders and the grass shader. Every dimension reshapes the same rolling base differently, so
+// each has its own landscape: 0 rolling hills, 1 terraced mesas, 2 long sharp ridges, 3 choppy hummocks, 4 flat plains with round hills.
+const ss = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t) }
+const base = (x: number, z: number) => 3.2 * Math.sin(x * 0.034 + 0.7) * Math.sin(z * 0.029 + 2.1) + 1.4 * Math.sin(x * 0.061 - z * 0.047) + 4.5 * Math.sin(x * 0.011 + 1.3) * Math.sin(z * 0.009) + 2.2 * Math.sin(x * 0.023 - z * 0.017) + 0.7 * (Math.sin(x * 0.09 + Math.sin(z * 0.05) * 2) * 0.5 + Math.sin(z * 0.07 + x * 0.03) * 0.5) + 0.25 * Math.sin(x * 0.31 + z * 0.17) * Math.sin(z * 0.23) + 0.06 * Math.sin(x * 0.9) * Math.sin(z * 0.8)
+export const terrainY = (x: number, z: number, dim = 2) => {
+  const b = base(x, z)
+  if (dim === 1) { const s = b / 2.6, f = Math.floor(s); return (f + ss(0.35, 0.65, s - f)) * 2.6 * 0.9 }
+  if (dim === 2) return b * 0.55 + 3.6 * Math.abs(Math.sin(x * 0.016 + z * 0.007 + 0.5 * Math.sin(z * 0.01))) - 1.8
+  if (dim === 3) return b * 0.45 + 2.2 * Math.sin(x * 0.11) * Math.sin(z * 0.09) + 1.2 * Math.sin(x * 0.19 + z * 0.13)
+  if (dim === 4) { const h = 0.5 + 0.5 * Math.sin(x * 0.02 + 1.0) * Math.sin(z * 0.018 + 0.4); return b * 0.25 + 7 * h * h * h }
+  return b
+}
+const BASE_GLSL = `float baseY(vec2 p){ return 3.2 * sin(p.x * 0.034 + 0.7) * sin(p.y * 0.029 + 2.1) + 1.4 * sin(p.x * 0.061 - p.y * 0.047) + 4.5 * sin(p.x * 0.011 + 1.3) * sin(p.y * 0.009) + 2.2 * sin(p.x * 0.023 - p.y * 0.017) + 0.7 * (sin(p.x * 0.09 + sin(p.y * 0.05) * 2.0) * 0.5 + sin(p.y * 0.07 + p.x * 0.03) * 0.5) + 0.25 * sin(p.x * 0.31 + p.y * 0.17) * sin(p.y * 0.23) + 0.06 * sin(p.x * 0.9) * sin(p.y * 0.8); }`
+const TERRAIN_BODY = [
+  "return b;",
+  "float s = b / 2.6, f = floor(s); return (f + smoothstep(0.35, 0.65, s - f)) * 2.6 * 0.9;",
+  "return b * 0.55 + 3.6 * abs(sin(p.x * 0.016 + p.y * 0.007 + 0.5 * sin(p.y * 0.01))) - 1.8;",
+  "return b * 0.45 + 2.2 * sin(p.x * 0.11) * sin(p.y * 0.09) + 1.2 * sin(p.x * 0.19 + p.y * 0.13);",
+  "float h = 0.5 + 0.5 * sin(p.x * 0.02 + 1.0) * sin(p.y * 0.018 + 0.4); return b * 0.25 + 7.0 * h * h * h;",
+]
+const terrainGlsl = (dim: number) => `${BASE_GLSL}\nfloat terrainY(vec2 p){ float b = baseY(p); ${TERRAIN_BODY[dim]} }`
 export const uTime = { value: 0 }
 export const uPlayer = { value: new THREE.Vector3() }
 const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
 
 // Grass blades generated entirely in the vertex shader from the instance id, so a patch costs no CPU or memory per blade.
-export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = false) => {
+export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = false, dim = 2) => {
   const m = new THREE.MeshToonMaterial({ vertexColors: true, side: THREE.DoubleSide, color: tint, gradientMap: toonGradient, transparent: true })
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { uTime, uPlayer, uPatch: { value: patch } })
-    sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${TERRAIN_GLSL}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
+    sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${terrainGlsl(dim)}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
       float id = float(gl_InstanceID), cid = floor(id / 9.0);
       // blades grow in tufts of nine that splay outward from a shared centre
       vec2 centre = vec2(uPatch.x + hh(cid * 1.31 + 7.0) * uPatch.z, uPatch.y + hh(cid * 2.17 + 3.0) * uPatch.w);
