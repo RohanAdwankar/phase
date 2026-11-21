@@ -93,7 +93,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -223,6 +223,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   // sword: tap to chop (upright blade, strike down, 0.45 s). Hold to charge and release to surge forward in a 360 cut; longer holds surge farther and faster.
   const SWING = 0.45, MAXCHARGE = 1.0
+  // a full charge cannot be sat on: held past these limits it fizzles and the weapon is locked out for a moment
+  const SWORD_HOLD = 0.7, BOW_HOLD = 2.5, FIZZLE = 1.6
   const cutAt = (e: Enemy, dmg: number, shove: number) => {
     const dx = e.pos.x - st.pos.x, dz = e.pos.z - st.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz)), c = new V(e.pos.x, e.pos.y + 1.7, e.pos.z)
     e.hp -= dmg * dm(); e.hitT = 0.2; e.pos.x += dx / dist * shove; e.pos.z += dz / dist * shove
@@ -700,7 +702,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         const before = st.swing; st.swing -= DT / SWING
         if (before > 0.55 && st.swing <= 0.55) swingCut()
         if (st.swing <= 0) { st.swing = 0; st.fireT = 0.04 }
-      } else if (st.fire && st.fireT <= 0) { const before = st.charge; st.charge = Math.min(MAXCHARGE, st.charge + DT); if (before < 0.22 && st.charge >= 0.22) sfx.play("ready") }
+      } else if (st.fire && st.fireT <= 0) {
+        const before = st.charge; st.charge = Math.min(MAXCHARGE, st.charge + DT); if (before < 0.22 && st.charge >= 0.22) sfx.play("ready")
+        if (st.charge >= MAXCHARGE) { if ((st.hold += DT) > SWORD_HOLD) { st.charge = 0; st.hold = 0; st.fireT = FIZZLE; sfx.play("tick") } } else st.hold = 0
+      }
       else if (st.charge > 0) {
         if (st.charge < 0.22) { st.swing = 1; sfx.play("whoosh"); const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
         else startSurge(st.charge / MAXCHARGE)
@@ -712,8 +717,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       else if (st.ammo <= 0) startReload()
       else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 }
     }
-    else if (st.fire && st.fireT <= 0) { if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw) }
-    else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } else sfx.draw.stop(); st.draw = 0 }
+    else if (st.fire && st.fireT <= 0) {
+      if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw)
+      if (st.draw >= 1 && (st.hold += DT) > BOW_HOLD) { sfx.draw.stop(); sfx.play("tick"); st.draw = 0; st.hold = 0; st.fireT = FIZZLE }
+    }
+    else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } else sfx.draw.stop(); st.draw = 0; st.hold = 0 }
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
     best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
     cpT -= DT
