@@ -851,7 +851,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"
         ctx.fillText(`the warden   in dimension ${e.dim + 1}${warn ? "   shifting!" : ""}${e.dim === nd() ? "   you can hit it" : "   phase to its dimension"}`, w / 2, 45)
       } else if (st.focus) {
-        const s2 = st.focus; ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"; ctx.fillText("shrine: light the pylons in this order. each exists in one dimension only", w / 2, 45)
+        const s2 = st.focus; ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"; ctx.fillText("shrine: light the pylons left to right. the number is the dimension each one stands in, a filled pale dot is already lit", w / 2, 45)
         s2.order.forEach((dm2, k) => { const x = w / 2 + (k - 2) * 40, lit = s2.lit[dm2]; ctx.beginPath(); ctx.arc(x, 72, k === s2.next ? 12 : 9, 0, 7); ctx.fillStyle = lit ? "#fff3c0" : hexs(GLOW[dm2]); if (lit || k === s2.next) ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = hexs(GLOW[dm2]); ctx.stroke(); ctx.fillStyle = lit ? "#222" : "#fff"; ctx.font = "11px ui-monospace, monospace"; ctx.fillText(String(dm2 + 1), x, 76) })
       } else if (st.target) {
         const dx = st.target.cx - p.x, dz = st.target.cz - p.z, rel = Math.atan2(dx, -dz) - (-st.yaw) , ang = Math.atan2(Math.sin(rel), Math.cos(rel))
