@@ -358,7 +358,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const throwGrenade = () => {
     if (st.gCd > 0) return
-    st.gCd = 1.6 * cdm(); sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
+    st.gCd = 16 * cdm(); sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
     m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
     bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
   }
