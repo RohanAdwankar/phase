@@ -92,7 +92,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -354,20 +354,22 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
     bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
   }
+  const TNT_MAX = 6, TNT_RECHARGE = 7 // you carry six sticks and regain one every seven seconds
   const placeTnt = () => {
-    if (st.tCd > 0) return
+    if (st.tCd > 0 || st.tnt <= 0) return
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()); let t = 14
     for (const c of chunks.values()) for (const b of c.boxes) if (b.dim === nd()) t = Math.min(t, rayCollider(o, dir, b))
     for (let s = 1; s < t; s += 0.5) if (o.y + dir.y * s < terrainY(o.x + dir.x * s, o.z + dir.z * s)) { t = s; break }
     const p = o.clone().addScaledVector(dir, Math.max(1, t - 0.8)); p.y = Math.max(p.y, terrainY(p.x, p.z))
     const near = bombs.find(b => b.kind === "tnt" && b.dim === nd() && b.fuse > 0.5 && b.pos.distanceTo(p) < 3.2)
-    st.tCd = 0.7 * cdm(); sfx.play("clink")
+    st.tCd = 0.25; st.tnt--; sfx.play("clink")
     if (near) { near.n++; near.mesh.removeFromParent(); near.mesh = tntMesh(near.n); near.mesh.position.copy(near.pos); scene.add(near.mesh); fx.spark(near.pos, 14, new V(0, 1, 0), DUST); return }
     const m = tntMesh(1); m.position.copy(p); scene.add(m)
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
   }
   const bombStep = (dt: number) => {
     st.gCd -= dt; st.tCd -= dt
+    if (st.tnt < TNT_MAX && (st.tntT += dt) >= TNT_RECHARGE * cdm()) { st.tnt++; st.tntT = 0 }
     for (let i = bombs.length - 1; i >= 0; i--) {
       const b = bombs[i]; b.fuse -= dt
       if (b.kind === "grenade" && b.vel.lengthSq() > 0.01) {
@@ -844,7 +846,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
     if (!dbg.hideHud && weapon === "pistol") { ctx.fillStyle = st.ammo <= 3 || st.reload > 0 ? "#e8c36a" : "#fff"; ctx.font = "700 22px ui-monospace, monospace"; ctx.textAlign = "right"; ctx.fillText(st.reload > 0 ? "reloading" : `${st.ammo} / ${MAG}`, w - 30, h - 30); ctx.textAlign = "left" }
-    if (!dbg.hideHud && weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tCd, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = cd > 0 ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`G ${weapon === "pistol" ? "grenade" : "tnt"}${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}${weapon === "bow" && tn ? `  planted ${tn}` : ""}`, 20, h - 56) }
+    if (!dbg.hideHud && weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tnt < TNT_MAX ? TNT_RECHARGE * cdm() - st.tntT : 0, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = (weapon === "pistol" ? cd > 0 : st.tnt === 0) ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(weapon === "pistol" ? `G grenade${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}` : `G tnt ${st.tnt}/${TNT_MAX}${tn ? `  planted ${tn}` : ""}${st.tnt < TNT_MAX ? `  next ${cd.toFixed(0)}s` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
     ctx.fillStyle = "#fff"; ctx.font = "14px ui-monospace, monospace"
     if (!dbg.hideHud && st.deadT <= 0) {
