@@ -672,12 +672,23 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       else if (a.ring2 > 0 && (a.ring2 -= dt) <= 0) { sfx.play("bigboom", e.pos, 0.8); for (let k = 0; k < 36; k++) { const an = (k / 36) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 17, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 17), 3, new V(0, 1, 0), DUST) }
         if (live && st.ground && dist < 18 && dist > 5) { hurtPlayer(e, 22, "crushed by a stomper"); st.vel.y = 10; st.ground = false } }
       else if (a.t <= 0 && dist < 22) { a.tele = 0.7; a.t = 4.2 }
-    } else if (v === 1) { // sniper: stays far away and locks a telegraphed shot you must step out of
-      moving = dist > 44 || dist < 28; if (dist < 28) { mx = -ux; mz = -uz }
-      if (a.tele > 0) { moving = false; a.beamT = (a.beamT ?? 0) - dt; if (a.beamT <= 0) { a.beamT = 0.12; beam(from, new V(a.lx, a.ly, a.lz), 0.015, 0.14) }
-        if ((a.tele -= dt) <= 0) { beam(from, new V(a.lx, a.ly, a.lz), 0.09, 0.25); sfx.play("zap", e.pos, 1.3); if (live && Math.hypot(st.pos.x - a.lx, st.pos.z - a.lz) < 2.4 && Math.abs(st.pos.y + 1 - a.ly) < 3.5) hurtPlayer(e, 30, "sniped")
-          if (enr && (a.burst = (a.burst ?? 0) + 1) < 3) { a.tele = 0.55; a.lx = st.pos.x + st.vel.x * 0.5; a.ly = st.pos.y + 1.2; a.lz = st.pos.z + st.vel.z * 0.5 } else a.burst = 0 } }
-      else if (a.t <= 0 && dist < 80 && live && clearShot(e)) { a.tele = 1; a.t = 3.6; a.lx = st.pos.x; a.ly = st.pos.y + 1.2; a.lz = st.pos.z }
+    } else if (v === 1) { // sniper: holds a firing range, tracks you with a laser, locks it, then fires along it; between shots it lobs fast lead-aimed bolts
+      const los = dist < 80 && clearShot(e, e.dim), aim = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
+      moving = !los || dist > 40 || dist < 24; if (los && dist < 24) { mx = -ux; mz = -uz } else if (!los) spd = 1.4
+      if (a.tele > 0) { moving = false
+        if (a.tele > 0.4) { a.lx = aim.x; a.ly = aim.y; a.lz = aim.z } // the laser follows you until the last moment
+        a.beamT = (a.beamT ?? 0) - dt; if (a.beamT <= 0) { a.beamT = 0.07; const d3 = new V(a.lx, a.ly, a.lz).sub(from).normalize(); beam(from, from.clone().addScaledVector(d3, Math.min(90, dist + 6)), a.tele > 0.4 ? 0.025 : 0.06, 0.1) }
+        if ((a.tele -= dt) <= 0) {
+          const d3 = new V(a.lx, a.ly, a.lz).sub(from).normalize(), far = from.clone().addScaledVector(d3, 90); beam(from, far, 0.14, 0.3); sfx.play("zap", e.pos, 1.5); st.shake = Math.max(st.shake, 0.3)
+          // it hits if you are within 1.8 m of the beam and nothing solid is in the way
+          const toP = new V(st.pos.x - from.x, st.pos.y + 1 - from.y, st.pos.z - from.z), along = toP.dot(d3), off = toP.clone().addScaledVector(d3, -along).length()
+          let blocked = false; for (const ch of nearChunks(2)) for (const bx of ch.boxes) if (bx.dim === e.dim && rayCollider(from, d3, bx) < along) blocked = true
+          if (live && along > 0 && off < 1.8 && !blocked) hurtPlayer(e, 34, "sniped")
+          if (enr && (a.burst = (a.burst ?? 0) + 1) < 3) a.tele = 0.7; else a.burst = 0 } }
+      else if (a.t <= 0 && los) { a.tele = 1.15; a.t = enr ? 2.6 : 3.8; a.lx = aim.x; a.ly = aim.y; a.lz = aim.z }
+      // spotting bolts: fast, aimed where you are going
+      a.sp = (a.sp ?? 1) - dt
+      if (a.sp <= 0 && los && !(a.tele > 0)) { a.sp = enr ? 0.65 : 1.05; const lead = dist / 42, tgt = new V(st.pos.x + st.vel.x * lead, st.pos.y + 1.1 + st.vel.y * lead * 0.5, st.pos.z + st.vel.z * lead); spawnShot(e, from, tgt.sub(from), 42, 9); sfx.play("zap", e.pos, 0.6) }
     } else if (v === 2) { // summoner: keeps its distance, calls swarmers, and mends itself while they live
       moving = dist > 30 || dist < 20; if (dist < 20) { mx = -ux; mz = -uz }
       if (a.t <= 0) { a.t = 6; summon("swarmer", 4 + Math.min(4, st.level) + (enr ? 4 : 0), 4, 8, e.dim, 0, Math.PI * 2, e.pos); if (enr) summon("flyer", 2, 6, 10, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }

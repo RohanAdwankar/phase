@@ -45,13 +45,14 @@ export const buildBoss = (kind: "boss" | "guardian", dim: number): BossBody => {
     turret.position.set(0, 5.8, -1); g.add(turret)
     update = (_dt, moving, phase, slam = 0) => arms.forEach((a, i) => (a.rotation.x = slam > 0 ? -2.6 + (1 - slam) * 2.8 : moving ? Math.sin(phase * 1.1 + i * Math.PI) * 0.4 : 0))
   } else if (dim === 1) {
-    // sniper: a tripod walker holding one long barrel and a single eye
-    const hub = group(0, 5.6, 0); part(new THREE.IcosahedronGeometry(1.1, 0), body, 0, 0, 0, hub); part(new THREE.SphereGeometry(0.5, 8, 6), lit, 0, 0, -0.9, hub)
-    const barrel = group(0, 0, 0); hub.add(barrel); part(bx(0.35, 0.35, 5.2), mid, 0, 0, -3.2, barrel); part(bx(0.5, 0.5, 0.9), lit, 0, 0, -5.9, barrel)
-    for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2 + 0.4, l = group(Math.cos(a) * 1.0, 5.1, Math.sin(a) * 1.0); part(bx(0.35, 5.6, 0.35), body, Math.cos(a) * 1.1, -2.6, Math.sin(a) * 1.1, l); l.rotation.set(Math.sin(a) * 0.33, 0, -Math.cos(a) * 0.33) }
-    for (let i = 0; i < 3; i++) part(cone(0.3, 0.9, 4), lit, Math.cos((i / 3) * Math.PI * 2 + 0.4) * 2.2, 0.35, Math.sin((i / 3) * Math.PI * 2 + 0.4) * 2.2).rotation.x = Math.PI
-    turret.position.set(0, 0, -6.2); barrel.add(turret)
-    update = (_dt, _m, phase) => { hub.position.y = 5.6 + Math.sin(phase * 0.15) * 0.18; barrel.rotation.x = Math.sin(phase * 0.1) * 0.05 }
+    // sniper: a heavy tripod gunship, a big armoured hub with a glowing scope, a thick long barrel with stabiliser fins, a radar dish and an antenna
+    const hub = group(0, 6.4, 0); part(new THREE.IcosahedronGeometry(1.9, 0), body, 0, 0, 0, hub); part(bx(3.4, 1.2, 3.4), mid, 0, -0.9, 0, hub)
+    part(new THREE.SphereGeometry(0.85, 10, 8), lit, 0, 0.1, -1.7, hub); part(new THREE.TorusGeometry(0.95, 0.12, 5, 12), mid, 0, 0.1, -1.75, hub)
+    const dish = group(0, 2.2, 0.4); hub.add(dish); part(new THREE.ConeGeometry(1.5, 0.8, 8, 1, true), mid, 0, 0, 0, dish).rotation.x = Math.PI * 0.55; part(bx(0.15, 1.2, 0.15), body, 0, -0.7, 0, dish); part(bx(0.1, 2.8, 0.1), lit, 0.9, 1.3, 0, dish)
+    const barrel = group(0, 0, 0); hub.add(barrel); part(bx(0.75, 0.75, 7.2), body, 0, 0, -4.8, barrel); part(bx(1.05, 1.05, 0.9), lit, 0, 0, -8.5, barrel); part(bx(0.35, 1.9, 2.4), mid, 0, 0, -4.4, barrel); part(bx(1.9, 0.35, 2.4), mid, 0, 0, -4.4, barrel)
+    for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2 + 0.4, lg = group(Math.cos(a) * 1.4, 5.6, Math.sin(a) * 1.4); part(bx(0.8, 6.4, 0.8), body, Math.cos(a) * 1.5, -2.9, Math.sin(a) * 1.5, lg); part(bx(2, 0.4, 2), mid, Math.cos(a) * 3.0, -6.2, Math.sin(a) * 3.0, lg); lg.rotation.set(Math.sin(a) * 0.4, 0, -Math.cos(a) * 0.4) }
+    turret.position.set(0, 0, -9); barrel.add(turret)
+    update = (_dt, _m, phase) => { hub.position.y = 6.4 + Math.sin(phase * 0.15) * 0.2; barrel.rotation.x = Math.sin(phase * 0.1) * 0.04; dish.rotation.y += _dt * 1.5 }
   } else if (dim === 2) {
     // summoner: a floating crystal heart with orbiting pods and a hanging tail
     const heart = group(0, 4.6, 0); part(new THREE.OctahedronGeometry(1.8, 0), body, 0, 0, 0, heart).scale.set(1, 1.5, 1); part(new THREE.OctahedronGeometry(0.9, 0), lit, 0, 0, 0, heart).scale.set(1, 1.5, 1)
