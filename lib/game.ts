@@ -953,6 +953,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = 0; i < N; i++) {
       const a0 = Math.max(0, 1 - gap(i) * 1.15), solid = i === nd()
       for (const m of registry[i]) {
+        // trees, plants and grass stand on their own dimension's ground, so as ghosts in another dimension they would float over yours: hide them
+        if (!solid && m.userData.flora) { m.visible = false; continue }
         const a = m.userData.always ? Math.max(a0, 0.55) : a0 // the warden shows through every dimension as a ghost
         m.visible = a > 0; m.transparent = !solid || !!m.userData.alpha; m.depthWrite = solid && !m.userData.alpha
         const xray = !solid && m.userData.xray

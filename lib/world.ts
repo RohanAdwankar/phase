@@ -63,6 +63,7 @@ export const loadWorld = async (onStep: () => void) => {
     if (!cache.has(key)) {
       const P = PALETTE[dim], keep = /dandelion|celandine|periwinkle/.test(id)
       const m = keep ? Object.assign(src.clone(), { side: THREE.DoubleSide }) : /fir|pine/.test(id) ? flatten(src, P.tree) : /branches|stump/.test(id) ? flatten(src, 0x6a4a35) : flatten(src, P.plant)
+      m.userData.flora = true
       cache.set(key, track(dim, m))
     }
     return cache.get(key)!
@@ -246,7 +247,7 @@ export const buildDetail = (w: World, c: Chunk) => {
     for (const [density, under] of [[9, false], [11, true]] as const) {
       const g = new THREE.InstancedBufferGeometry(); g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a)
       g.instanceCount = Math.round(CH * CH * density); g.boundingSphere = new THREE.Sphere(new V(x0 + CH / 2, terrainY(x0 + CH / 2, z0 + CH / 2, dim) + 0.4, z0 + CH / 2), CH * 0.75)
-      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under, dim); track(dim, gm); c.grass.push(gm)
+      const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under, dim); gm.userData.flora = true; track(dim, gm); c.grass.push(gm)
       d.add(new THREE.Mesh(g, gm))
     }
     const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z, dim), z) })
