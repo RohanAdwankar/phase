@@ -1041,6 +1041,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(w / 2 - bw / 2 - 3, 52, bw + 6, 14); ctx.fillStyle = hexs(GLOW[e.dim]); ctx.fillRect(w / 2 - bw / 2, 55, bw * f, 8)
         ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"
         ctx.fillText(e.kind === "guardian" ? `guardian: ${GUARD_NAMES[e.variant ?? 0]}` : `the warden${warn ? "   shifting!" : ""}${e.dim === nd() ? "" : "   phase to its dimension"}`, w / 2, 45)
+      }
+      // the arrow points at the warden while it hunts you, otherwise always at the next beacon (a guardian's bar sits above it and does not change the arrow)
+      const oy = st.bossE ? 38 : 0, wd = st.bossE?.kind === "boss" ? st.bossE : null
+      if (wd) {
+        const e = wd
         // an arrow to it, tinted by the dimension it is in now, with the distance
         const rb = Math.atan2(e.pos.x - p.x, -(e.pos.z - p.z)) - (-st.yaw), angb = Math.atan2(Math.sin(rb), Math.cos(rb)), colb = hexs(GLOW[e.dim]), lb = `${Math.round(Math.hypot(e.pos.x - p.x, e.pos.z - p.z))} m`
         ctx.save(); ctx.translate(w / 2, 100); ctx.rotate(angb); ctx.fillStyle = colb; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
@@ -1048,8 +1053,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       } else if (st.focus) {
         // only the next beacon matters: an arrow to it, tinted by its dimension, with that dimension's number and the distance
         const s2 = st.focus, py = s2.pylons[s2.order[Math.min(s2.next, N - 1)]], rel2 = Math.atan2(py.x - p.x, -(py.z - p.z)) - (-st.yaw), ang2 = Math.atan2(Math.sin(rel2), Math.cos(rel2)), col = hexs(GLOW[py.dim])
-        ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang2); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
-        ctx.font = "14px ui-monospace, monospace"; const lbl = `${Math.round(Math.hypot(py.x - p.x, py.z - p.z))} m`; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.strokeText(lbl, w / 2, 92); ctx.fillStyle = col; ctx.fillText(lbl, w / 2, 92)
+        ctx.save(); ctx.translate(w / 2, 62 + oy); ctx.rotate(ang2); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
+        ctx.font = "14px ui-monospace, monospace"; const lbl = `${Math.round(Math.hypot(py.x - p.x, py.z - p.z))} m`; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.strokeText(lbl, w / 2, 92 + oy); ctx.fillStyle = col; ctx.fillText(lbl, w / 2, 92 + oy)
       } else if (st.target) {
         const dx = st.target.cx - p.x, dz = st.target.cz - p.z, rel = Math.atan2(dx, -dz) - (-st.yaw) , ang = Math.atan2(Math.sin(rel), Math.cos(rel))
         ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
