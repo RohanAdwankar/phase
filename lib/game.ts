@@ -1013,6 +1013,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(w / 2 - bw / 2 - 3, 52, bw + 6, 14); ctx.fillStyle = hexs(GLOW[e.dim]); ctx.fillRect(w / 2 - bw / 2, 55, bw * f, 8)
         ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"
         ctx.fillText(e.kind === "guardian" ? `guardian: ${GUARD_NAMES[e.variant ?? 0]}` : `the warden${warn ? "   shifting!" : ""}${e.dim === nd() ? "" : "   phase to its dimension"}`, w / 2, 45)
+        // an arrow to it, tinted by the dimension it is in now, with the distance
+        const rb = Math.atan2(e.pos.x - p.x, -(e.pos.z - p.z)) - (-st.yaw), angb = Math.atan2(Math.sin(rb), Math.cos(rb)), colb = hexs(GLOW[e.dim]), lb = `${Math.round(Math.hypot(e.pos.x - p.x, e.pos.z - p.z))} m`
+        ctx.save(); ctx.translate(w / 2, 100); ctx.rotate(angb); ctx.fillStyle = colb; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
+        ctx.font = "14px ui-monospace, monospace"; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.strokeText(lb, w / 2, 130); ctx.fillStyle = colb; ctx.fillText(lb, w / 2, 130)
       } else if (st.focus) {
         // only the next beacon matters: an arrow to it, tinted by its dimension, with that dimension's number and the distance
         const s2 = st.focus, py = s2.pylons[s2.order[Math.min(s2.next, N - 1)]], rel2 = Math.atan2(py.x - p.x, -(py.z - p.z)) - (-st.yaw), ang2 = Math.atan2(Math.sin(rel2), Math.cos(rel2)), col = hexs(GLOW[py.dim])
