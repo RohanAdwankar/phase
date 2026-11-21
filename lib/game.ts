@@ -704,7 +704,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (st.swing <= 0) { st.swing = 0; st.fireT = 0.04 }
       } else if (st.fire && st.fireT <= 0) {
         const before = st.charge; st.charge = Math.min(MAXCHARGE, st.charge + DT); if (before < 0.22 && st.charge >= 0.22) sfx.play("ready")
-        if (st.charge >= MAXCHARGE) { if ((st.hold += DT) > SWORD_HOLD) { st.charge = 0; st.hold = 0; st.fireT = FIZZLE; sfx.play("tick") } } else st.hold = 0
+        if (st.charge >= MAXCHARGE) { if ((st.hold += DT) > SWORD_HOLD) { st.charge = 0; st.hold = 0; st.fireT = FIZZLE; sfx.play("fizzle") } } else st.hold = 0
       }
       else if (st.charge > 0) {
         if (st.charge < 0.22) { st.swing = 1; sfx.play("whoosh"); const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
@@ -719,7 +719,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     else if (st.fire && st.fireT <= 0) {
       if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw)
-      if (st.draw >= 1 && (st.hold += DT) > BOW_HOLD) { sfx.draw.stop(); sfx.play("tick"); st.draw = 0; st.hold = 0; st.fireT = FIZZLE }
+      if (st.draw >= 1 && (st.hold += DT) > BOW_HOLD) { sfx.draw.stop(); sfx.play("fizzle"); st.draw = 0; st.hold = 0; st.fireT = FIZZLE }
     }
     else if (st.draw > 0) { if (st.draw > 0.2) { loose(st.draw); st.fireT = 0.4 } else sfx.draw.stop(); st.draw = 0; st.hold = 0 }
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }

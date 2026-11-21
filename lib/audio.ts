@@ -1,7 +1,7 @@
 // Procedural sound effects: everything is synthesised with Web Audio (noise bursts, sweeps and tones), so there are no audio files to load.
-export type Kind = "pistol" | "loose" | "thud" | "hit" | "die" | "boom" | "bigboom" | "zap" | "hurt" | "jump" | "jump2" | "land" | "step" | "whoosh" | "surge" | "clink" | "phase" | "scrape" | "ready" | "tick" | "death" | "respawn"
+export type Kind = "pistol" | "loose" | "thud" | "hit" | "die" | "boom" | "bigboom" | "zap" | "hurt" | "jump" | "jump2" | "land" | "step" | "whoosh" | "surge" | "clink" | "phase" | "scrape" | "ready" | "tick" | "death" | "respawn" | "fizzle"
 
-const BOOST: Partial<Record<Kind, number>> = { boom: 0.55, bigboom: 0.5, pistol: 0.85, whoosh: 2.4, step: 3.5, scrape: 3.2, jump: 1.8, jump2: 1.6, ready: 1.8, tick: 2.5, phase: 1.6, surge: 1.2, zap: 1.5, hit: 1.6 }
+const BOOST: Partial<Record<Kind, number>> = { boom: 0.55, bigboom: 0.5, pistol: 0.85, whoosh: 2.4, step: 3.5, scrape: 3.2, jump: 1.8, jump2: 1.6, ready: 1.8, tick: 2.5, phase: 1.6, surge: 1.2, zap: 1.5, hit: 1.6, fizzle: 1.5 }
 
 export const makeSfx = (ctx: BaseAudioContext, out: AudioNode) => {
   const noise = (() => { const b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b })()
@@ -40,6 +40,8 @@ export const makeSfx = (ctx: BaseAudioContext, out: AudioNode) => {
       case "ready": tone(dest, t, "sine", 880, 1320, 0.12 * v, 0.1); break
       case "death": tone(dest, t, "sawtooth", 320, 40, 0.5 * v, 1.1); tone(dest, t, "sine", 90, 28, 1.0 * v, 1.3); burst(dest, t, "lowpass", 1800, 70, 0.7, 0.7 * v, 1.0); break
       case "respawn": tone(dest, t, "sine", 440, 880, 0.3 * v, 0.35); tone(dest, t + 0.12, "sine", 660, 1320, 0.25 * v, 0.4); burst(dest, t, "bandpass", 400, 4000, 1.2, 0.35 * v, 0.5, 0.05); break
+      // a held charge that went stale: a falling, sputtering whine that cannot be mistaken for a hit or a shot
+      case "fizzle": tone(dest, t, "sawtooth", 460, 70, 0.22 * v, 0.42); burst(dest, t, "lowpass", 2600, 180, 1, 0.3 * v, 0.38); tone(dest, t + 0.06, "square", 170, 45, 0.18 * v, 0.34); break
       case "tick": tone(dest, t, "square", 900, 700, 0.1 * v, 0.03); break
     }
   }
