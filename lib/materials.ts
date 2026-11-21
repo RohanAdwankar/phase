@@ -69,6 +69,9 @@ const hashGLSL = "float hh(float n){ return fract(sin(n) * 43758.5453); }"
 // Grass blades generated entirely in the vertex shader from the instance id, so a patch costs no CPU or memory per blade.
 export const grassMaterial = (patch: THREE.Vector4, tint: number, undergrowth = false, dim = 2) => {
   const m = new THREE.MeshToonMaterial({ vertexColors: true, side: THREE.DoubleSide, color: tint, gradientMap: toonGradient, transparent: true })
+  // three caches a compiled program by the source of onBeforeCompile, which is identical for every dimension, so without a key the grass of all five
+  // dimensions would share the first program built and sit on that dimension's ground
+  m.customProgramCacheKey = () => `grass-${dim}-${undergrowth}`
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { uTime, uPlayer, uPatch: { value: patch } })
     sh.vertexShader = `uniform float uTime; uniform vec3 uPlayer; uniform vec4 uPatch;\n${hashGLSL}\n${terrainGlsl(dim)}\n` + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
