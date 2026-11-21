@@ -58,7 +58,7 @@ const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
 }
 
 export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void, practice = false) {
-  const idle = { stop: () => {}, begin: () => {} }
+  const idle = { stop: () => {}, begin: () => {}, harder: () => {} }
   if (signal.aborted) return idle
   const ctx = hud.getContext("2d")!
   let loaded = 0; status(0, "loading textures and plants")
@@ -108,7 +108,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, runT: 0, wins: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -709,6 +709,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
             // the guardian defends its crystal: it steps in front of it when you come close
             const g = py.guard, dPy = Math.hypot(p.x - py.x, p.z - py.z)
             if (g && nd() === py.dim && dPy < 16 && Math.hypot(g.pos.x - py.x, g.pos.z - py.z) > 10 && ((g.ai ??= {}).def = (g.ai.def ?? 0) - dt) <= 0) {
+    // the first warden you kill ends the run: freeze the world and hand the stats to the page
+    if (!practice && st.wins++ === 0) {
+      document.exitPointerLock()
+      window.dispatchEvent(new CustomEvent("phase-victory", { detail: { seconds: Math.round(st.runT), deaths: st.deaths, kills: st.kills, powerups: st.items, shrines: st.level, farthest: Math.round(best) } }))
+    }
               g.ai.def = 5; const ax = (p.x - py.x) / (dPy || 1), az = (p.z - py.z) / (dPy || 1); fx.spark(new V(g.pos.x, g.pos.y + 3, g.pos.z), 30, new V(0, 1, 0), GLOWC[g.dim]); g.pos.x = py.x + ax * 6; g.pos.z = py.z + az * 6; sfx.play("phase", g.pos, 1)
             }
           }
@@ -778,6 +783,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (m > cap) { v.x *= cap / m; v.z *= cap / m }
     }
     const glide = !st.ground && st.glide && v.y < 0 && st.wallT <= 0
+    st.runT += DT
     if (glide) { v.y = Math.max(v.y, -2); v.x += fwd.x * 12 * DT; v.z += fwd.z * 12 * DT }
 
     st.coyote = st.ground ? 0.1 : st.coyote - DT
@@ -1118,7 +1124,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
   status(1, "ready")
-  return { begin: () => { started = true }, stop: () => {
+  return { begin: () => { started = true }, harder: () => { st.level += 2; banner("endless: every enemy is tougher", 4) }, stop: () => {
     cancelAnimationFrame(raf); post.composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)
