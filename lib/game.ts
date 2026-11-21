@@ -7,7 +7,7 @@ import { Enemy, Kind, makeEnemy } from "./actors"
 import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
-import { N, terrainY, track } from "./materials"
+import { N, terrainY, track, untrack } from "./materials"
 import { gradient, PALETTE } from "./toon"
 import { createSfx, makeSfx } from "./audio"
 import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, LOAD_STEPS, chunkKey, clearRock, ellBox, hash, Box, Chunk, CH } from "./world"
@@ -401,9 +401,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = waves.length - 1; i >= 0; i--) { const w2 = waves[i]; w2.t += dt / 0.4; w2.mesh.scale.setScalar(Math.max(0.5, w2.r * Math.sqrt(w2.t))); (w2.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * Math.max(0, 1 - w2.t); if (w2.t >= 1) { w2.mesh.removeFromParent(); waves.splice(i, 1) } }
   }
   // a walker can only shoot when no wall of its dimension lies between it and the player
-  const clearShot = (e: Enemy) => {
+  const clearShot = (e: Enemy, dim = e.dim) => {
     const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
-    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayCollider(from, dir, b) < len) return false
+    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === dim && rayCollider(from, dir, b) < len) return false
     return true
   }
   // walkers are solid against every boulder and wall of their own dimension, however they got moved
@@ -424,7 +424,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       let moving = false, mx = 0, mz = 0
-      const live = e.dim === nd()
+      const live = e.kind === "boss" || e.dim === nd() // the warden strikes across dimensions
       if (e.kind === "walker") { moving = dist < 70 && dist > 9; if (moving) { mx = dx / dist; mz = dz / dist } }
       else if (e.kind === "swarmer") { moving = dist < 90 && dist > 1.4; if (moving) { mx = dx / dist; mz = dz / dist } }
       else if (e.kind === "flyer") {
@@ -437,7 +437,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         // brute: lumbers, then charges; slams when in reach
         e.t1 -= dt
         const charging = e.t2 > 0; if (charging) e.t2 -= dt
-        moving = dist < 80 && dist > 3.6; if (moving) { mx = dx / dist; mz = dz / dist }
+        moving = dist < (e.kind === "boss" ? 400 : 80) && dist > (e.kind === "boss" ? 8 : 3.6); if (moving) { mx = dx / dist; mz = dz / dist }
         if (!charging && e.t1 <= 0 && dist < 26 && dist > 8) { e.t2 = 0.9; e.t1 = 3.2 }
         const reach = e.kind === "boss" ? 9 : 5
         if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
@@ -445,12 +445,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       }
       const spd = ((e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level)
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
-      rocksNear(e)
+      if (e.kind !== "boss") rocksNear(e) // the warden glides through rock
       const gy = terrainY(e.pos.x, e.pos.z)
       e.pos.y = e.kind === "flyer" ? gy + e.fy + Math.sin(time * 2.2 + e.pos.x) * 0.7 : gy
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
       e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" ? Math.max(0, e.fireT / 0.9) : 0)
-      if (e.kind === "boss") bossTick(e, dt, dist, live)
+      if (e.kind === "boss") { bossTick(e, dt, dist); rehome(e) }
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
       if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt * (1 + 0.12 * st.level)) <= 0 && clearShot(e)) {
@@ -472,7 +472,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const nx = dist > 0.001 ? dx / dist : 1, nz = dist > 0.001 ? dz / dist : 0, push = (min - dist) * 0.5
       a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push
     }
-    for (const e of live) { rocksNear(e); e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
+    for (const e of live) { if (e.kind !== "boss") rocksNear(e); e.mesh.position.x = e.pos.x; e.mesh.position.z = e.pos.z }
     for (const e of live) if (e.dim === nd()) {
       const dx = st.pos.x - e.pos.x, dz = st.pos.z - e.pos.z, dist = Math.hypot(dx, dz), min = e.hr + 0.5
       if (e.kind !== "swarmer" && dist < min && st.pos.y < e.pos.y + e.h && st.pos.y + 1.8 > e.pos.y) { const k = dist > 0.001 ? 1 / dist : 0; st.pos.x = e.pos.x + (dist > 0.001 ? dx * k : 1) * min; st.pos.z = e.pos.z + (dist > 0.001 ? dz * k : 0) * min }
@@ -541,6 +541,18 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const banner = (t: string, secs = 3) => { st.banner = t; st.bannerT = secs }
   const resetShrine = (sh: Shrine) => { sh.lit.fill(false); sh.next = 0; for (const p of sh.pylons) setLit(p, false) }
+  // the warden gets its own materials, flagged to stay visible as a translucent ghost in every dimension
+  const ghostify = (e: Enemy) => {
+    const mats: THREE.Material[] = []
+    e.mesh.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const c = (m.material as THREE.Material).clone(); c.userData = { xray: true, always: true }; track(e.dim, c); m.material = c; mats.push(c) })
+    e.ghost = mats
+  }
+  // a chasing enemy moves between chunks: keep it in the list of the chunk it stands in so hits and ticks still find it
+  const rehome = (e: Enemy) => {
+    const to = chunks.get(chunkKey(Math.floor(e.pos.x / CH), Math.floor(e.pos.z / CH))); if (!to || to.enemies.includes(e)) return
+    for (const c of chunks.values()) c.enemies = c.enemies.filter(x => x !== e)
+    to.enemies.push(e); to.group.add(e.mesh)
+  }
   const startBoss = (sh: Shrine) => {
     sh.state = "boss"
     const dim = (nd() + 2) % N, pos = new V(sh.cx, 0, sh.cz), e = makeEnemy("boss", world.foe, dim, pos)
@@ -548,28 +560,28 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     pos.y = terrainY(pos.x, pos.z); e.mesh.position.copy(pos)
     e.maxHp = e.hp = 150 + 60 * st.level; e.shiftT = 6.5; e.fireT = 1.2
     const ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) { sh.state = "idle"; resetShrine(sh); return }
-    ch.group.add(e.mesh); ch.enemies.push(e); sh.boss = e
+    ghostify(e); ch.group.add(e.mesh); ch.enemies.push(e); sh.boss = e
     sfx.play("bigboom", pos, 1.2); fx.spark(pos.clone().setY(pos.y + 2), 200, new V(0, 1, 0), new THREE.Color(0xffd070)); st.shake = 1.4
-    banner("the warden wakes: it hides in other dimensions. hit it where it stands", 4)
+    banner("the warden hunts you across dimensions. hit it in the dimension it stands in", 4)
   }
   const shiftBoss = (e: Enemy) => {
-    const old = e.mesh, parent = old.parent; old.removeFromParent()
+    const old = e.mesh, parent = old.parent; old.removeFromParent(); untrack(e.dim, e.ghost ?? [])
     let nd2 = Math.floor(Math.random() * (N - 1)); if (nd2 >= e.dim) nd2++
     const nb = makeEnemy("boss", world.foe, nd2, e.pos)
-    e.mesh = nb.mesh; e.update = nb.update; e.turret = nb.turret; e.dim = nd2; e.mesh.position.copy(e.pos); parent?.add(e.mesh)
+    e.mesh = nb.mesh; e.update = nb.update; e.turret = nb.turret; e.dim = nd2; e.mesh.position.copy(e.pos); ghostify(e); parent?.add(e.mesh)
     fx.smoke(e.pos.clone().setY(e.pos.y + 2.5), 8, new THREE.Color(0x303040), 3); fx.spark(e.pos.clone().setY(e.pos.y + 3), 70, new V(0, 1, 0), GLOWC[nd2])
     sfx.play("phase", e.pos, 1)
     summon("swarmer", 4, 6, 11, nd2, 0, Math.PI * 2, e.pos)
     e.shiftT = Math.max(4, 7 - 0.4 * st.level)
   }
-  const bossTick = (e: Enemy, dt: number, dist: number, live: boolean) => {
+  const bossTick = (e: Enemy, dt: number, dist: number) => {
     e.shiftT = (e.shiftT ?? 6) - dt
     if (e.shiftT < 1.3 && Math.random() < 0.7) fx.spark(new V(e.pos.x + (Math.random() - 0.5) * 5, e.pos.y + 1 + Math.random() * 6, e.pos.z + (Math.random() - 0.5) * 5), 2, new V(0, 1, 0), GLOWC[e.dim])
     if (e.shiftT <= 0) shiftBoss(e)
     // orb volley: three shots in a spread
     e.maxHp = e.maxHp ?? e.hp
     e.t1 = e.t1
-    if (live && dist < 60 && ((e.volT = (e.volT ?? 1.5) - dt) <= 0) && clearShot(e)) {
+    if (dist < 60 && ((e.volT = (e.volT ?? 1.5) - dt) <= 0) && clearShot(e, nd())) {
       e.volT = 1.9
       const from = e.turret.getWorldPosition(new V()), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
       for (let k = -1; k <= 1; k++) { const tt = to.clone(); tt.x += k * 3 * Math.cos(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); tt.z -= k * 3 * Math.sin(Math.atan2(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); beam(from, tt, 0.07, 0.14) }
@@ -793,7 +805,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (nd() !== lastNd) { lastNd = nd(); sfx.play("phase") }
     if (st.slide && st.ground && (st.scrapeT -= dt) <= 0) { st.scrapeT = 0.09; sfx.play("whoosh", undefined, 0.25) }
     // walkers cost ~100 draw calls each, so only the ones that are close and in a visible dimension are drawn
-    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = gap(e.dim) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < (e.kind === "boss" ? 150 : 60)
+    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = (gap(e.dim) < 1.1 || e.kind === "boss") && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < (e.kind === "boss" ? 400 : 60)
     for (const c of chunks.values()) {
       const r = ring(c)
       if (c.detail) c.detail.visible = r <= 1
@@ -801,8 +813,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     // the dimension you are sliding toward shows as a faint ghost, and its enemies glow through walls so you can scout them
     for (let i = 0; i < N; i++) {
-      const a = Math.max(0, 1 - gap(i) * 1.15), solid = i === nd()
+      const a0 = Math.max(0, 1 - gap(i) * 1.15), solid = i === nd()
       for (const m of registry[i]) {
+        const a = m.userData.always ? Math.max(a0, 0.55) : a0 // the warden shows through every dimension as a ghost
         m.visible = a > 0; m.transparent = !solid || !!m.userData.alpha; m.depthWrite = solid && !m.userData.alpha
         const xray = !solid && m.userData.xray
         m.opacity = solid ? 1 : xray ? Math.min(1, a * 1.4) * 0.9 : a * 0.3

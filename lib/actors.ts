@@ -10,7 +10,7 @@ export type FoeMats = { olive: Mat[]; yellow: Mat[]; metal: Mat[]; lamp: Mat[] }
 export type Kind = "walker" | "swarmer" | "flyer" | "brute" | "boss"
 // r is the body radius used for pushing units apart and out of rock, hr the radius of the hit box, h its height, fy the hover height
 export type Enemy = { kind: Kind; mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number, slam?: number) => void; turret: THREE.Object3D; pos: THREE.Vector3; dim: number; hp: number; fireT: number; hitT: number
-  r: number; hr: number; h: number; fy: number; speed: number; t1: number; t2: number; shiftT?: number; maxHp?: number; volT?: number; lv?: number }
+  r: number; hr: number; h: number; fy: number; speed: number; t1: number; t2: number; shiftT?: number; maxHp?: number; volT?: number; lv?: number; ghost?: THREE.Material[] }
 export const STATS: Record<Kind, { hp: number; r: number; hr: number; h: number; fy: number; speed: number }> = {
   walker: { hp: 12, r: 1.8, hr: 1.3, h: 3, fy: 0, speed: 2.5 },
   swarmer: { hp: 2, r: 0.7, hr: 0.75, h: 1.1, fy: 0, speed: 8.5 },
