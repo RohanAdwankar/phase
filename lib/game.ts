@@ -10,7 +10,7 @@ import { makeSword } from "./sword"
 import { N, terrainY, track } from "./materials"
 import { gradient } from "./toon"
 import { createSfx, makeSfx } from "./audio"
-import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, chunkKey, clearRock, ellBox, hash, diff, Box, Chunk, CH } from "./world"
+import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, LOAD_STEPS, chunkKey, clearRock, ellBox, hash, diff, Box, Chunk, CH } from "./world"
 import { BOULDERS } from "./rocks"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -41,12 +41,14 @@ const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
   return t > 0 && o.y + d.y * t > e.bot ? t : C < 0 ? 0 : Infinity
 }
 
-export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal) {
-  if (signal.aborted) return () => {}
+export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void) {
+  const idle = { stop: () => {}, tutorial: () => {} }
+  if (signal.aborted) return idle
   const ctx = hud.getContext("2d")!
-  hud.width = 800; hud.height = 60; ctx.fillStyle = "#fff"; ctx.font = "20px ui-monospace, monospace"; ctx.fillText("loading assets", 20, 40)
-  const world = await loadWorld()
-  if (signal.aborted) return () => {}
+  let loaded = 0; status(0, "loading textures and plants")
+  const world = await loadWorld(() => status(0.7 * ++loaded / LOAD_STEPS, "loading textures and plants"))
+  if (signal.aborted) return idle
+  status(0.75, "building the renderer")
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.shadowMap.enabled = true
@@ -74,7 +76,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   vmScene.add(new THREE.HemisphereLight(0xcfe0ff, 0x7a6a8a, 1.9)); { const vs = new THREE.DirectionalLight(0xfff0d2, 2.4); vs.position.set(-0.4, 1, 0.5); vmScene.add(vs) }
   const post = makePost(renderer, scene, cam, vmScene, vmCam)
 
-  const dbg = { freezeVm: false, hideHint: false, hideHud: false, hideStats: false, lockScale: 0 }
+  const dbg = { freezeVm: false, showKeys: false, hideHud: false, hideStats: false, lockScale: 0 }
   const sfx = createSfx()
   const fx = makeFx(scene), bow = makeViewmodel(world.metal), pistol = makePistol(flashTexture(), world.metal)
   const sword = makeSword(world.metal)
@@ -694,8 +696,28 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     p.y = Math.min(p.y, 80)
   }
 
+  // optional guided tutorial: each step completes when the player does the thing
+  const keyT: Record<string, number> = {}
+  let tut = -1, tutT = 0, tutBase = { x: 0, z: 0, nd: 0, n: 0, swaps: 0 }
+  const TUT: [string, () => boolean][] = [
+    ["wasd to move, mouse to look", () => Math.hypot(st.pos.x - tutBase.x, st.pos.z - tutBase.z) > 12],
+    ["space to jump, space again in the air to double jump", () => st.jumps >= 1 && !st.ground],
+    ["land and jump again right away: bunny hops build speed", () => st.hops >= 2],
+    ["hold c while running to slide", () => st.slide],
+    ["run at a boulder to wall run, space jumps off", () => st.wallT > 0],
+    ["press e, q or scroll to phase into another dimension", () => tutBase.n >= 1],
+    ["keep going: the five dimensions form a ring, it loops", () => tutBase.n >= 5],
+    ["click to shoot. 1 pistol, 2 bow, 3 sword, g grenade or tnt", () => st.fire],
+    ["enemies live in one dimension. phase out to dodge, phase back to strike", () => tutT > 6],
+  ]
+  const tutorial = () => { tut = 0; tutT = 0; tutBase = { x: st.pos.x, z: st.pos.z, nd: nd(), n: 0, swaps: 0 } }
+  const tutTick = (dt: number) => {
+    if (tut < 0) return
+    tutT += dt; if (nd() !== tutBase.nd) { tutBase.nd = nd(); tutBase.n++ }
+    if (TUT[tut][1]()) { tut++; tutT = 0; tutBase.x = st.pos.x; tutBase.z = st.pos.z; tutBase.n = 0; if (tut >= TUT.length) { tut = -1; banner("tutorial done", 3) } }
+  }
   const frame = (w: number, h: number, dt: number) => {
-    time += dt; uTime.value = time
+    time += dt; uTime.value = time; tutTick(dt)
     const p = st.pos, speed = Math.hypot(st.vel.x, st.vel.z), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
     st.roll += ((st.wallT > 0 ? -0.14 * st.wn.dot(right) : 0) - st.roll) * Math.min(1, 10 * dt)
     st.kick = Math.max(0, st.kick - dt * 14); st.hit = Math.max(0, st.hit - dt); st.hurt = Math.max(0, st.hurt - dt); st.flash = Math.max(0, st.flash - dt)
@@ -750,7 +772,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (nd() !== lastNd) { lastNd = nd(); sfx.play("phase") }
     if (st.slide && st.ground && (st.scrapeT -= dt) <= 0) { st.scrapeT = 0.09; sfx.play("whoosh", undefined, 0.25) }
     // walkers cost ~100 draw calls each, so only the ones that are close and in a visible dimension are drawn
-    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = Math.abs(e.dim - d) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < (e.kind === "boss" ? 150 : 60)
+    for (const c of chunks.values()) for (const e of c.enemies) e.mesh.visible = gap(e.dim) < 1.1 && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < (e.kind === "boss" ? 150 : 60)
     for (const c of chunks.values()) {
       const r = ring(c)
       if (c.detail) c.detail.visible = r <= 1
@@ -832,9 +854,19 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.font = "14px ui-monospace, monospace"
     if (!dbg.hideHud && !dbg.hideStats) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     if (!dbg.hideHud || dbg.hideStats) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
-    for (let i = 0; i < N; i++) { ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(w - 24, h / 2 - 120 + i * 60, 8, 1) }
-    ctx.fillStyle = "#fff"; ctx.fillRect(w - 28, h / 2 - 120 + d * 60, 16, 2)
-    if (!document.pointerLockElement && !manual && !dbg.hideHint) ctx.fillText("click to play. wasd move, mouse aim, click: pistol shoots, bow draws and looses, sword taps to chop or holds then releases to surge with a 360 cut. G throws a grenade (pistol) or plants stacking TNT (bow, shoot it to blow it up). 1 pistol, 2 bow, 3 sword, m mutes sound, wheel or q e phase, space jump, c slide, c+space bullet jump, hold right click glide, wall: run into it", 20, h - 50)
+    // the dimensions are a ring: five dots, and the marker travels round it (and wraps) as you phase
+    const cx = w - 90, cy = h / 2, rr = 52, ang = (i: number) => (i / N) * Math.PI * 2 - Math.PI / 2
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke()
+    for (let i = 0; i < N; i++) { ctx.fillStyle = i === nd() ? "#fff" : "rgba(255,255,255,0.45)"; ctx.fillRect(cx + Math.cos(ang(i)) * rr - 6, cy + Math.sin(ang(i)) * rr - 6, 12, 12) }
+    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + Math.cos(ang(wrap(d))) * rr, cy + Math.sin(ang(wrap(d))) * rr, 6, 0, Math.PI * 2); ctx.fill()
+    ctx.textAlign = "center"; ctx.font = "22px ui-monospace, monospace"; ctx.fillText(`${nd() + 1}`, cx, cy + 8); ctx.textAlign = "left"
+    if (dbg.showKeys || tut >= 0) {
+      const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["", "", 20], ["Wheel", "scroll", 84]]
+      let x = w / 2 - caps.reduce((a, c) => a + c[2] + 6, 0) / 2, y = h - 72; ctx.textAlign = "center"; ctx.font = "17px ui-monospace, monospace"
+      for (const [c, label, cw] of caps) { if (c) { const on = c === "Wheel" ? now - lastWheel < 260 : lit(c); ctx.fillStyle = on ? "#fff" : "rgba(0,0,0,0.45)"; ctx.fillRect(x, y, cw, 44); ctx.fillStyle = on ? "#111" : "rgba(255,255,255,0.85)"; ctx.fillText(label, x + cw / 2, y + 28) } x += cw + 6 }
+      ctx.textAlign = "left"
+    }
+    if (tut >= 0 && tut < TUT.length) { ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "13px ui-monospace, monospace"; ctx.fillText(`tutorial ${tut + 1}/${TUT.length}   t skips`, w / 2, h - 96); ctx.fillStyle = "#fff"; ctx.font = "700 22px ui-sans-serif, system-ui, sans-serif"; ctx.shadowBlur = 8; ctx.fillText(TUT[tut][0], w / 2, h - 124); ctx.shadowBlur = 3; ctx.textAlign = "left" }
   }
 
   let raf = 0, last = performance.now(), acc = 0
@@ -866,6 +898,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       tick(dt)
     }
   }
+  status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
   ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
@@ -876,6 +909,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyG" && !e.repeat) { if (weapon === "pistol") throwGrenade(); else if (weapon === "bow") placeTnt() }
     if (e.code === "KeyM" && !e.repeat) sfx.toggleMute()
     if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
+    keyT[e.code] = performance.now()
+    if (e.code === "KeyT") tut = -1
     if (e.code === "KeyQ") target = Math.round(target) - 1
     if (e.code === "KeyE") target = Math.round(target) + 1
     if (!e.repeat && e.code === "Space") st.jump = true
@@ -895,10 +930,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   addEventListener("keydown", kd); addEventListener("keyup", ku); addEventListener("mousemove", mm)
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
-  return () => {
+  status(1, "ready")
+  return { tutorial, stop: () => {
     cancelAnimationFrame(raf); post.composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)
     removeEventListener("wheel", wh); canvas.removeEventListener("click", click)
-  }
+  } }
 }

@@ -47,13 +47,15 @@ export type Chunk = {
 }
 
 const TINT = [0xcfeea8, 0xf2e6a0, 0xb8e8b0, 0xecd0a0, 0xd2e0f4]
+export const LOAD_STEPS = 7 + 17
 const MODELS = ["fir_sapling", "fir_sapling_lo", "pine_sapling_small", "pine_sapling_lo", "fir_sapling_medium", "fir_sapling_medium_lo", "shrub_02", "shrub_03", "fern_02", "grass_medium_01", "grass_medium_02", "dandelion_01", "celandine_01", "periwinkle_plant", "moss_01", "dry_branches_medium_01", "tree_stump_01"]
 
-export const loadWorld = async () => {
-  const [grass, dry, rock, olive, metal, forest, scree] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "green_metal_rust", "metal_plate", "forrest_ground_01", "dry_ground_rocks"].map(loadPBR))
+export const loadWorld = async (onStep: () => void) => {
+  const step = <T,>(p: Promise<T>) => p.then(x => (onStep(), x))
+  const [grass, dry, rock, olive, metal, forest, scree] = await Promise.all(["leafy_grass", "aerial_grass_rock", "rock_face", "green_metal_rust", "metal_plate", "forrest_ground_01", "dry_ground_rocks"].map(id => step(loadPBR(id))))
   const biome: [PBR, PBR][] = [[grass, dry], [dry, scree], [forest, rock], [scree, dry], [grass, forest]]
-  const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await loadModel(id)] as const))
-  const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await loadModel("pine_sapling_small_lo")
+  const entries = await Promise.all(MODELS.filter(m => m !== "pine_sapling_lo").map(async id => [id, await step(loadModel(id))] as const))
+  const models: Record<string, Model> = Object.fromEntries(entries); models.pine_sapling_lo = await step(loadModel("pine_sapling_small_lo"))
   const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
   const lane = per(i => { const t = groundTexture(i); t.repeat.set(0.13, 0.13); return new THREE.MeshToonMaterial({ map: t, gradientMap: gradient, transparent: true }) })
   const rockMat = per(i => { const m = flatten(new THREE.MeshStandardMaterial(), PALETTE[i].rock, PALETTE[i].moss) as THREE.MeshStandardMaterial; m.flatShading = true; m.transparent = true; return m })
