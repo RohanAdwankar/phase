@@ -16,7 +16,7 @@ export const STATS: Record<Kind, { hp: number; r: number; hr: number; h: number;
   swarmer: { hp: 2, r: 0.7, hr: 0.75, h: 1.1, fy: 0, speed: 8.5 },
   flyer: { hp: 6, r: 1.3, hr: 1.2, h: 1.4, fy: 5, speed: 6 },
   brute: { hp: 45, r: 2.7, hr: 2.2, h: 4.4, fy: 0, speed: 3.4 },
-  boss: { hp: 150, r: 4.6, hr: 3.8, h: 7.6, fy: 0, speed: 3.1 },
+  boss: { hp: 150, r: 4.6, hr: 3.8, h: 7.6, fy: 0, speed: 7.5 },
   guardian: { hp: 80, r: 3.5, hr: 3, h: 6.2, fy: 0, speed: 3.6 },
 }
 

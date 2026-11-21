@@ -583,7 +583,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const startBoss = (sh: Shrine) => {
     sh.state = "boss"
-    const dim = (nd() + 2) % N, pos = new V(sh.cx, 0, sh.cz), e = makeEnemy("boss", world.foe, dim, pos)
+    // it arrives right on top of you, 22 m ahead, rather than waiting at the shrine
+    const dim = (nd() + 2) % N, ay = st.yaw + (Math.random() - 0.5) * 1.2, pos = new V(st.pos.x - Math.sin(ay) * 22, 0, st.pos.z - Math.cos(ay) * 22), e = makeEnemy("boss", world.foe, dim, pos)
     const bx: Box[] = []; for (const ch of chunks.values()) bx.push(...ch.boxes); clearRock(bx, dim, pos, e.r)
     pos.y = terrainY(pos.x, pos.z, dim); e.mesh.position.copy(pos)
     e.maxHp = e.hp = 150 + 60 * st.level; e.shiftT = 6.5; e.fireT = 1.2
@@ -603,6 +604,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     e.shiftT = Math.max(4, 7 - 0.4 * st.level)
   }
   const bossTick = (e: Enemy, dt: number, dist: number) => {
+    // it never lets you lose it: once you outrun it, it phases in beside you
+    e.ai = e.ai ?? {}; e.ai.blink = (e.ai.blink ?? 0) - dt
+    if (dist > 38 && e.ai.blink <= 0) {
+      e.ai.blink = 4; const an = Math.random() * Math.PI * 2; fx.spark(new V(e.pos.x, e.pos.y + 3, e.pos.z), 50, new V(0, 1, 0), GLOWC[e.dim])
+      e.pos.x = st.pos.x + Math.cos(an) * 16; e.pos.z = st.pos.z + Math.sin(an) * 16; e.pos.y = terrainY(e.pos.x, e.pos.z, e.dim); sfx.play("phase", e.pos, 1.2); fx.spark(new V(e.pos.x, e.pos.y + 3, e.pos.z), 50, new V(0, 1, 0), GLOWC[e.dim])
+    }
     e.shiftT = (e.shiftT ?? 6) - dt
     if (e.shiftT < 1.3 && Math.random() < 0.7) fx.spark(new V(e.pos.x + (Math.random() - 0.5) * 5, e.pos.y + 1 + Math.random() * 6, e.pos.z + (Math.random() - 0.5) * 5), 2, new V(0, 1, 0), GLOWC[e.dim])
     if (e.shiftT <= 0) shiftBoss(e)
