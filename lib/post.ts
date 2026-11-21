@@ -57,8 +57,8 @@ export const makePost = (renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam:
       grade.uniforms.uSunVis.value = (behind ? 0 : Math.max(0, 1 - Math.hypot(tmp.x, tmp.y) * 0.35)) * (1 - calm)
       grade.uniforms.uTime.value = time % 10
       grade.uniforms.uPeek.value = Math.min(1, Math.abs(d - Math.round(d)) * 2)
-      const i = Math.min(GRADE.length - 2, Math.floor(d)), t = d - i
-      grade.uniforms.uTint.value.set(...(GRADE[i].map((v, k) => v + (GRADE[i + 1][k] - v) * t) as [number, number, number]))
+      const i = Math.floor(d) % GRADE.length, t = d - Math.floor(d), nx = GRADE[(i + 1) % GRADE.length]
+      grade.uniforms.uTint.value.set(...(GRADE[i].map((v, k) => v + (nx[k] - v) * t) as [number, number, number]))
     },
     resize(w: number, h: number, dpr: number) { composer.setPixelRatio(dpr); composer.setSize(w, h) },
   }

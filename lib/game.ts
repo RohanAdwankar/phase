@@ -95,7 +95,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
   const on = (c: string) => keys.has(c)
-  const nd = () => Math.round(d)
+  // the dimensions form a ring: d and the wheel/Q/E target are unbounded, and every consumer reads the wrapped value
+  const wrap = (x: number) => ((x % N) + N) % N, nd = () => Math.round(wrap(d)) % N, gap = (i: number) => { const x = Math.abs(i - wrap(d)); return Math.min(x, N - x) }
   const pc = () => [Math.floor(st.pos.x / CH), Math.floor(st.pos.z / CH)] as const
   const ring = (c: Chunk) => { const [x, z] = pc(); return Math.max(Math.abs(c.cx - x), Math.abs(c.cz - z)) }
   const nearChunks = (r: number) => [...chunks.values()].filter(c => ring(c) <= r)
@@ -372,7 +373,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       b.mesh.position.copy(b.pos)
       const spark = b.mesh.getObjectByName("spark"); const pulse = 1 + 0.4 * Math.sin(time * (b.fuse === Infinity ? 6 : 14 + 30 / Math.max(0.2, b.fuse)))
       if (spark) spark.scale.setScalar(pulse); else b.mesh.scale.setScalar(1 + 0.05 * Math.sin(time * 40))
-      b.mesh.visible = Math.abs(b.dim - d) < 1.1
+      b.mesh.visible = gap(b.dim) < 1.1
       if (b.fuse <= 0) { blast(b); b.mesh.removeFromParent(); bombs.splice(i, 1) }
     }
     for (let i = waves.length - 1; i >= 0; i--) { const w2 = waves[i]; w2.t += dt / 0.4; w2.mesh.scale.setScalar(Math.max(0.5, w2.r * Math.sqrt(w2.t))); (w2.mesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * Math.max(0, 1 - w2.t); if (w2.t >= 1) { w2.mesh.removeFromParent(); waves.splice(i, 1) } }
@@ -392,7 +393,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
-      if (Math.abs(e.dim - d) > 1.1 && e.kind !== "boss") continue
+      if (gap(e.dim) > 1.1 && e.kind !== "boss") continue
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       let moving = false, mx = 0, mz = 0
@@ -435,7 +436,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const separate = () => {
     const live: Enemy[] = []
-    for (const c of nearChunks(2)) for (const e of c.enemies) if (Math.abs(e.dim - d) < 1.1) live.push(e)
+    for (const c of nearChunks(2)) for (const e of c.enemies) if (gap(e.dim) < 1.1) live.push(e)
     for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
       const a = live[i], b = live[j]; if (a.dim !== b.dim) continue
       if (Math.abs(a.pos.y - b.pos.y) > 3.5) continue
@@ -757,7 +758,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     // the dimension you are sliding toward shows as a faint ghost, and its enemies glow through walls so you can scout them
     for (let i = 0; i < N; i++) {
-      const a = Math.max(0, 1 - Math.abs(d - i) * 1.15), solid = i === nd()
+      const a = Math.max(0, 1 - gap(i) * 1.15), solid = i === nd()
       for (const m of registry[i]) {
         m.visible = a > 0; m.transparent = !solid || !!m.userData.alpha; m.depthWrite = solid && !m.userData.alpha
         const xray = !solid && m.userData.xray
@@ -770,7 +771,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = beams.length - 1; i >= 0; i--) if ((beams[i].life -= dt) <= 0) { beams[i].mesh.removeFromParent(); beams.splice(i, 1) }
     boom.intensity = Math.max(0, boom.intensity - dt * 300)
     fx.update(dt, cam.position)
-    calm += ((st.surge > 0 ? 1 : 0) - calm) * Math.min(1, dt * 14); post.update(SUN, d, time, calm); post.composer.render()
+    calm += ((st.surge > 0 ? 1 : 0) - calm) * Math.min(1, dt * 14); post.update(SUN, wrap(d), time, calm); post.composer.render()
 
     ctx.clearRect(0, 0, w, h)
     {
@@ -867,7 +868,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
@@ -875,8 +876,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (e.code === "Digit1") swap("pistol"); if (e.code === "Digit2") swap("bow"); if (e.code === "Digit3") swap("sword"); if (e.code === "KeyG" && !e.repeat) { if (weapon === "pistol") throwGrenade(); else if (weapon === "bow") placeTnt() }
     if (e.code === "KeyM" && !e.repeat) sfx.toggleMute()
     if (e.code === "KeyF") swap(weapon === "pistol" ? "bow" : weapon === "bow" ? "sword" : "pistol")
-    if (e.code === "KeyQ") target = Math.max(0, Math.round(target) - 1)
-    if (e.code === "KeyE") target = Math.min(N - 1, Math.round(target) + 1)
+    if (e.code === "KeyQ") target = Math.round(target) - 1
+    if (e.code === "KeyE") target = Math.round(target) + 1
     if (!e.repeat && e.code === "Space") st.jump = true
     keys.add(e.code)
   }
@@ -888,7 +889,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const md = (e: MouseEvent) => { if (e.button === 0) st.fire = true; if (e.button === 2) st.glide = true }
   const mu = (e: MouseEvent) => { if (e.button === 0) st.fire = false; if (e.button === 2) st.glide = false }
-  const wh = (e: WheelEvent) => { e.preventDefault(); lastWheel = performance.now(); target = Math.min(N - 1, Math.max(0, target + e.deltaY * 0.004)) }
+  const wh = (e: WheelEvent) => { e.preventDefault(); lastWheel = performance.now(); target += e.deltaY * 0.004 }
   const click = () => { sfx.init(); if (!document.pointerLockElement) canvas.requestPointerLock() }
   const noMenu = (e: Event) => e.preventDefault()
   addEventListener("keydown", kd); addEventListener("keyup", ku); addEventListener("mousemove", mm)
