@@ -108,7 +108,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, runT: 0, wins: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, power: null as { k: string; t: number } | null, runT: 0, wins: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -197,7 +197,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const hitBox = (e: Enemy) => [new V(e.pos.x - e.hr, e.pos.y, e.pos.z - e.hr), new V(e.pos.x + e.hr, e.pos.y + e.h, e.pos.z + e.hr)] as const
 
   // bow: hold to draw, release to loose. Arrows fly on an arc, stick into whatever they hit, and only touch the dimension they were fired in.
-  type Arrow = { mesh: THREE.Group; vel: THREE.Vector3; dim: number; power: number; life: number; stuck: boolean }
+  type Arrow = { mesh: THREE.Group; vel: THREE.Vector3; dim: number; power: number; life: number; stuck: boolean; boom?: boolean; boomed?: boolean }
   const arrows: Arrow[] = []
   const arrowGeo = { shaft: new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6).rotateX(Math.PI / 2).translate(0, 0, 0.45), head: new THREE.ConeGeometry(0.03, 0.14, 6).rotateX(-Math.PI / 2).translate(0, 0, -0.02) }
   const arrowMat = { shaft: new THREE.MeshStandardMaterial({ color: 0xc9a56a, roughness: 0.6 }), head: new THREE.MeshStandardMaterial({ color: 0xb8bdc4, metalness: 1, roughness: 0.25 }) }
@@ -206,13 +206,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     const mesh = new THREE.Group(); mesh.add(new THREE.Mesh(arrowGeo.shaft, arrowMat.shaft), new THREE.Mesh(arrowGeo.head, arrowMat.head))
     mesh.position.copy(o).addScaledVector(dir, 0.8).add(new V(0.12, -0.12, 0).applyQuaternion(cam.quaternion)); mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), dir); scene.add(mesh)
-    arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false })
+    arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false, boom: st.power?.k === "explosive arrows" })
     st.kick = 1.6
   }
   const MAG = 12, RELOAD = 1.2
   const startReload = () => { if (st.reload > 0 || st.ammo === MAG) return; st.reload = RELOAD; sfx.play("tick") }
   const shootPistol = () => {
-    sfx.play("pistol"); st.ammo--
+    sfx.play("pistol"); if (st.power?.k !== "rapid pistol") st.ammo--
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
@@ -307,6 +307,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const gy = terrainY(end.x, end.z, a.dim), onTerrain = end.y < gy
     if (tMin < len || onTerrain) {
       a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
+      if (a.boom && !a.boomed) { a.boomed = true; explode(end.clone(), a.dim, 6.5, 65, 0.6, 0) }
       if (tntHit) { (tntHit as Bomb).fuse = 0.05; a.life = 0; return }
       if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; hit.hp -= (4 + 12 * a.power * a.power) * dm(); fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
       else { sfx.play("thud", end, 0.7); fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
@@ -318,18 +319,23 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const dm = () => 1 + 0.2 * st.boon.dmg, cdm = () => Math.pow(0.85, st.boon.cd)
   // kills heal by enemy size, and sometimes drop a powerup orb that stacks for the rest of the run
   const HEAL: Record<Kind, number> = { swarmer: 0.1, flyer: 0.1, walker: 0.2, brute: 0.5, boss: 1, guardian: 0.6 }, DROP: Record<Kind, number> = { swarmer: 0.04, flyer: 0.1, walker: 0.14, brute: 0.4, boss: 0, guardian: 1 }
-  const orbs: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; life: number }[] = [], orbGeo = new THREE.OctahedronGeometry(0.3), orbMat = new THREE.MeshBasicMaterial({ color: 0xffd36a })
+  const orbs: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; life: number; power?: boolean }[] = [], orbGeo = new THREE.OctahedronGeometry(0.3), orbMat = new THREE.MeshBasicMaterial({ color: 0xffd36a }), powerMat = new THREE.MeshBasicMaterial({ color: 0xa8f4ff, toneMapped: false })
+  // brutes sometimes drop a glowing cyan orb that grants a timed power for one weapon
+  const POWERS: [string, string][] = [["explosive arrows", "every arrow explodes where it lands"], ["whirlwind sword", "every sword swing is a 360 cut"], ["rapid pistol", "no reloading, twice the fire rate"]]
   const POWERUPS: [string, () => void][] = [["damage +10%", () => { st.boon.dmg += 0.5 }], ["move speed +4%", () => { st.boon.spd += 0.5 }], ["cooldowns -8%", () => { st.boon.cd += 0.5 }], ["max health +10", () => { st.maxHp += 10 }]]
   const onKill = (e: Enemy) => {
     st.hp = Math.min(st.maxHp, st.hp + HEAL[e.kind] * st.maxHp)
+    if (e.kind === "brute" && Math.random() < 0.6) { const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.45), powerMat); m.position.copy(e.pos).setY(e.pos.y + 1.4); scene.add(m); orbs.push({ mesh: m, pos: m.position, dim: e.dim, life: 60, power: true }) }
     if (Math.random() < DROP[e.kind]) { const mesh = new THREE.Mesh(orbGeo, orbMat); mesh.position.copy(e.pos).setY(e.pos.y + 1); scene.add(mesh); orbs.push({ mesh, pos: mesh.position, dim: e.dim, life: 45 }) }
   }
   const orbTick = (dt: number) => {
+    if (st.power && (st.power.t -= dt) <= 0) { banner(`${st.power.k} wore off`, 1.5); st.power = null }
     for (let i = orbs.length - 1; i >= 0; i--) {
       const o = orbs[i], here = o.dim === nd(); o.life -= dt; o.mesh.visible = here; o.mesh.rotation.y += dt * 2.5
       const dx = st.pos.x - o.pos.x, dy = st.pos.y + 1 - o.pos.y, dz = st.pos.z - o.pos.z, dist = Math.hypot(dx, dy, dz)
       if (here && dist < 9) o.pos.addScaledVector(new V(dx, dy, dz), Math.min(1, 7 * dt / Math.max(dist, 0.1)))
-      if (here && dist < 1.6 && st.deadT <= 0) { const [text, apply] = POWERUPS[Math.floor(Math.random() * POWERUPS.length)]; apply(); st.items++; banner(text, 1.6); sfx.play("ready"); fx.spark(o.pos, 20, new V(0, 1, 0), new THREE.Color(0xffd36a)); o.life = 0 }
+      if (here && dist < 1.6 && st.deadT <= 0 && o.power) { const [k, text] = POWERS[Math.floor(Math.random() * POWERS.length)]; st.power = { k, t: 25 }; banner(`${k}: ${text}`, 2.4); sfx.play("ready"); fx.spark(o.pos, 30, new V(0, 1, 0), new THREE.Color(0xa8f4ff)); o.life = 0 }
+      else if (here && dist < 1.6 && st.deadT <= 0) { const [text, apply] = POWERUPS[Math.floor(Math.random() * POWERUPS.length)]; apply(); st.items++; banner(text, 1.6); sfx.play("ready"); fx.spark(o.pos, 20, new V(0, 1, 0), new THREE.Color(0xffd36a)); o.life = 0 }
       if (o.life <= 0) { o.mesh.removeFromParent(); orbs.splice(i, 1) }
     }
   }
@@ -852,15 +858,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (st.charge >= MAXCHARGE) { if ((st.hold += DT) > SWORD_HOLD) { st.charge = 0; st.hold = 0; st.fireT = FIZZLE; sfx.play("fizzle") } } else st.hold = 0
       }
       else if (st.charge > 0) {
-        if (st.charge < 0.22) { st.swing = 1; sfx.play("whoosh"); const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
-        else startSurge(st.charge / MAXCHARGE)
+        if (st.charge < 0.22 && st.power?.k !== "whirlwind sword") { st.swing = 1; sfx.play("whoosh"); const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)); st.vel.x += f.x * 5; st.vel.z += f.z * 5 }
+        else startSurge(Math.max(0.3, st.charge / MAXCHARGE))
         st.charge = 0
       }
     }
     else if (weapon === "pistol") {
       if (st.reload > 0) { st.reload -= DT; if (st.reload <= 0) { st.ammo = MAG; sfx.play("clink") } }
       else if (st.ammo <= 0) startReload()
-      else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = 0.09 }
+      else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = st.power?.k === "rapid pistol" ? 0.045 : 0.09 }
     }
     else if (st.fire && st.fireT <= 0) {
       if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw)
@@ -1021,6 +1027,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.strokeStyle = st.hit > 0 ? "#fff" : "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#000"; ctx.shadowBlur = 3
     ctx.beginPath(); ctx.moveTo(w / 2 - 9, h / 2); ctx.lineTo(w / 2 - 4, h / 2); ctx.moveTo(w / 2 + 4, h / 2); ctx.lineTo(w / 2 + 9, h / 2)
     ctx.moveTo(w / 2, h / 2 - 9); ctx.lineTo(w / 2, h / 2 - 4); ctx.moveTo(w / 2, h / 2 + 4); ctx.lineTo(w / 2, h / 2 + 9); ctx.stroke()
+    if (!dbg.hideHud && st.power) { ctx.fillStyle = "#a8f4ff"; ctx.font = "700 16px ui-monospace, monospace"; ctx.textAlign = "right"; ctx.fillText(`${st.power.k}  ${Math.ceil(st.power.t)}s`, w - 30, h - 62); ctx.textAlign = "left" }
     if (!dbg.hideHud && weapon === "pistol") { ctx.fillStyle = st.ammo <= 3 || st.reload > 0 ? "#e8c36a" : "#fff"; ctx.font = "700 22px ui-monospace, monospace"; ctx.textAlign = "right"; ctx.fillText(st.reload > 0 ? "reloading" : `${st.ammo} / ${MAG}`, w - 30, h - 30); ctx.textAlign = "left" }
     if (!dbg.hideHud && weapon !== "sword") { const cd = weapon === "pistol" ? st.gCd : st.tnt < TNT_MAX ? TNT_RECHARGE * cdm() - st.tntT : 0, tn = bombs.filter(b => b.kind === "tnt").reduce((a, b) => a + b.n, 0); ctx.fillStyle = (weapon === "pistol" ? cd > 0 : st.tnt === 0) ? "rgba(255,255,255,0.45)" : "#e8c36a"; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(weapon === "pistol" ? `G grenade${cd > 0 ? ` ${cd.toFixed(1)}s` : " ready"}` : `G tnt ${st.tnt}/${TNT_MAX}${tn ? `  planted ${tn}` : ""}${st.tnt < TNT_MAX ? `  next ${cd.toFixed(0)}s` : ""}`, 20, h - 56) }
     if (weapon === "sword" && st.charge > 0.22) { const f = (st.charge - 0.22) / 0.78; ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80, 3); ctx.fillStyle = "#e8c36a"; ctx.fillRect(w / 2 - 40, h / 2 + 34, 80 * f, 3) }
@@ -1111,7 +1118,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { rayCollider, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
