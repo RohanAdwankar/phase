@@ -40,10 +40,9 @@ export const clearRock = (boxes: Box[], dim: number, pos: THREE.Vector3, R: numb
 }
 export const ellBox = (cx: number, cy: number, cz: number, rx: number, hh: number, rz: number, dim: number): Box =>
   ({ min: new THREE.Vector3(cx - rx, cy - hh, cz - rz), max: new THREE.Vector3(cx + rx, cy + hh, cz + rz), dim, ell: { cx, cz, rx, rz, cy, hh, bot: cy - hh * 0.62 } })
-export type Pit = { x0: number; x1: number; z0: number; z1: number; dim: number }
 export type Chunk = {
   cx: number; cz: number; group: THREE.Group; detail: THREE.Group | null; lods: { hi: THREE.Object3D[]; lo: THREE.Object3D[] }
-  boxes: Box[]; pits: Pit[]; enemies: Enemy[]; grass: THREE.Material[]; geos: THREE.BufferGeometry[]
+  boxes: Box[]; enemies: Enemy[]; grass: THREE.Material[]; geos: THREE.BufferGeometry[]
 }
 
 const TINT = [0xcfeea8, 0xf2e6a0, 0xb8e8b0, 0xecd0a0, 0xd2e0f4]
@@ -133,7 +132,7 @@ export const spawn = new V(0, 0, 0)
 
 export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number): Chunk => {
   const x0 = cx * CH, z0 = cz * CH
-  const c: Chunk = { cx, cz, group: new THREE.Group(), detail: null, lods: { hi: [], lo: [] }, boxes: [], pits: [], enemies: [], grass: [], geos: [] }
+  const c: Chunk = { cx, cz, group: new THREE.Group(), detail: null, lods: { hi: [], lo: [] }, boxes: [], enemies: [], grass: [], geos: [] }
   scene.add(c.group)
   const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, cast = true) => {
     const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = cast; o.receiveShadow = true; c.geos.push(geo); c.group.add(o); return o
@@ -168,19 +167,12 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
 
   for (let dim = 0; dim < N; dim++) {
     const rng = rngFrom(cx, cz, dim, 1)
-    // chasm: a square hole in one cell
-    if (rng() < 0.16) {
-      const ci = cx * 2 + Math.floor(rng() * 2), cj = cz * 2 + Math.floor(rng() * 2), px = (ci + 0.5) * CELL + (rng() - 0.5) * 4, pz = (cj + 0.5) * CELL + (rng() - 0.5) * 4, hs = 4 + rng() * 1.5
-      if (!near0(px, pz, 34)) c.pits.push({ x0: px - hs, x1: px + hs, z0: pz - hs, z1: pz + hs, dim })
-    }
-    // terrain, with the chasm carved into the vertex heights
+    // terrain
     const geo = new THREE.PlaneGeometry(CH, CH, 40, 40); geo.rotateX(-Math.PI / 2)
-    const p = geo.attributes.position, uv = geo.attributes.uv, pits = c.pits.filter(q => q.dim === dim)
+    const p = geo.attributes.position, uv = geo.attributes.uv
     for (let n = 0; n < p.count; n++) {
       const wx = x0 + CH / 2 + p.getX(n), wz = z0 + CH / 2 + p.getZ(n)
-      let drop = 0
-      for (const q of pits) { const d = Math.max(q.x0 - wx, wx - q.x1, q.z0 - wz, wz - q.z1); drop = Math.max(drop, Math.min(1, Math.max(0, (0.3 - d) / 0.8)) * 9) }
-      p.setXYZ(n, wx, terrainY(wx, wz) - drop, wz); uv.setXY(n, wx / 4, wz / 4)
+      p.setXYZ(n, wx, terrainY(wx, wz), wz); uv.setXY(n, wx / 4, wz / 4)
     }
     geo.computeVertexNormals()
     mesh(geo, w.lane[dim], 0, 0, 0, false)
@@ -191,7 +183,6 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
       // standing stones
       if (r() < 0.38 && !near0(cxm, czm, 26)) for (let j = 0; j < 1 + Math.floor(r() * 2); j++) {
         const x = cxm + (r() - 0.5) * 8, z = czm + (r() - 0.5) * 8, h = 2.4 + r() * 2.6, rad = 1.5 + r() * 1.2, ty = terrainY(x, z), hx = rad * 0.78
-        if (pits.some(q => x > q.x0 - 3 && x < q.x1 + 3 && z > q.z0 - 3 && z < q.z1 + 3)) continue
         const rz2 = rad * (0.8 + 0.4 * r()); boulders(dim, [[x, ty + h * 0.45, z, rad, h, rz2, r() * 6.28, r() * 4]]); blob(dim, x, z, rad * 4, rad * 4)
         c.boxes.push(ellBox(x, ty + h * 0.45, z, rad * 1.12, h * 0.97, rz2 * 1.12, dim))
       }
@@ -254,15 +245,14 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
 export const buildDetail = (w: World, c: Chunk) => {
   const x0 = c.cx * CH, z0 = c.cz * CH, d = (c.detail = new THREE.Group()); c.group.add(d)
   for (let dim = 0; dim < N; dim++) {
-    const r = rngFrom(c.cx, c.cz, dim, 3), pits = c.pits.filter(q => q.dim === dim)
-    const ok = (x: number, z: number) => !pits.some(q => x > q.x0 - 1.5 && x < q.x1 + 1.5 && z > q.z0 - 1.5 && z < q.z1 + 1.5)
+    const r = rngFrom(c.cx, c.cz, dim, 3)
     for (const [density, under] of [[9, false], [11, true]] as const) {
       const g = new THREE.InstancedBufferGeometry(); g.index = blade.index; for (const [name, a] of Object.entries(blade.attributes)) g.setAttribute(name, a)
       g.instanceCount = Math.round(CH * CH * density); g.boundingSphere = new THREE.Sphere(new V(x0 + CH / 2, terrainY(x0 + CH / 2, z0 + CH / 2) + 0.4, z0 + CH / 2), CH * 0.75)
       const gm = grassMaterial(new THREE.Vector4(x0, z0, CH, CH), PALETTE[dim].blade, under); track(dim, gm); c.grass.push(gm)
       d.add(new THREE.Mesh(g, gm))
     }
-    const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z), z) }).filter(q => ok(q.x, q.z))
+    const spots = (n: number) => [...Array(n)].map(() => { const x = x0 + r() * CH, z = z0 + r() * CH; return new V(x, terrainY(x, z), z) })
     const scatter = (id: string, n: number, lo: number, hi: number) => place(id, dim, spots(n).map(q => mat4(q.x, q.y, q.z, r() * 6.28, lo + r() * (hi - lo))))
     const place = (id: string, dm: number, ms: THREE.Matrix4[]) => w.models[id].parts.map((p, k) => {
       const im = new THREE.InstancedMesh(p.geo, w.matFor(dm, id, k, p.mat), Math.max(1, ms.length)); im.count = ms.length

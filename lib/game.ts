@@ -103,11 +103,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const ring = (c: Chunk) => { const [x, z] = pc(); return Math.max(Math.abs(c.cx - x), Math.abs(c.cz - z)) }
   const nearChunks = (r: number) => [...chunks.values()].filter(c => ring(c) <= r)
   const nearBoxes = () => nearChunks(1).flatMap(c => c.boxes).filter(b => b.dim === nd())
-  const groundH = (x: number, z: number) => {
-    const c = chunks.get(chunkKey(Math.floor(x / CH), Math.floor(z / CH)))
-    if (c) for (const q of c.pits) if (q.dim === nd() && x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1) return -Infinity
-    return terrainY(x, z)
-  }
   // boulder dome height under (x, z), inflated by the player radius; -Infinity outside it
   const R = 0.5
   const domeTop = (e: NonNullable<Box["ell"]>, x: number, z: number) => {
@@ -141,7 +136,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       n = v > 0 ? -1 : 1
       if (axis !== "y") hitN.set(axis === "x" ? n : 0, 0, axis === "z" ? n : 0)
     }
-    if (axis === "y" && v <= 0) { const gh = groundH(st.pos.x, st.pos.z); if (st.pos.y < gh) { st.pos.y = gh; n = 1 } }
+    if (axis === "y" && v <= 0) { const gh = terrainY(st.pos.x, st.pos.z); if (st.pos.y < gh) { st.pos.y = gh; n = 1 } }
     if (n) st.vel[axis] = 0
     return n
   }
@@ -405,13 +400,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // a walker can only shoot when no wall of its dimension lies between it and the player
   const clearShot = (e: Enemy) => {
     const from = new V(e.pos.x, e.pos.y + 2.4, e.pos.z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
-  // ranged shots miss more when you are fast and high: up to half of them at full speed well off the ground
-  const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z)) / 10))
     for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === e.dim && rayCollider(from, dir, b) < len) return false
     return true
   }
   // walkers are solid against every boulder and wall of their own dimension, however they got moved
   const rocksNear = (e: Enemy) => { const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, e.dim, e.pos, e.r) }
+  // ranged shots miss more when you are fast and high: up to half of them at full speed well off the ground
+  const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z)) / 10))
   const hurtPlayer = (e: Enemy, dmg: number, why: string) => {
     if (st.inv > 0 || st.deadT > 0) return
     st.cause = why; sfx.play("hurt"); st.hp -= dmg; st.hurt = 0.35; hurts.push({ x: e.pos.x - st.pos.x, z: e.pos.z - st.pos.z, t: 1 })
@@ -519,7 +514,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const spotOpen = (dim: number, x: number, z: number) => {
     for (const ch of chunks.values()) {
       for (const b of ch.boxes) if (b.dim === dim && (b.ell ? Math.hypot(b.ell.cx - x, b.ell.cz - z) < Math.max(b.ell.rx, b.ell.rz) + 6 : x > b.min.x - 6 && x < b.max.x + 6 && z > b.min.z - 6 && z < b.max.z + 6)) return false
-      for (const q of ch.pits) if (q.dim === dim && x > q.x0 - 6 && x < q.x1 + 6 && z > q.z0 - 6 && z < q.z1 + 6) return false
     }
     return true
   }
@@ -719,9 +713,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (let i = arrows.length - 1; i >= 0; i--) { arrowStep(arrows[i], DT); if (arrows[i].life <= 0) { arrows[i].mesh.removeFromParent(); arrows.splice(i, 1) } }
     best = Math.max(best, Math.floor(Math.hypot(p.x, p.z)))
     cpT -= DT
-    if (cpT <= 0 && st.ground && st.hp > 40) { cpT = 2; const q = chunks.get(chunkKey(...pc())); if (q && !q.pits.some(z => z.dim === nd() && Math.abs(p.x - (z.x0 + z.x1) / 2) < 14 && Math.abs(p.z - (z.z0 + z.z1) / 2) < 14)) checkpoint = { pos: p.clone(), dim: nd() } }
+    if (cpT <= 0 && st.ground && st.hp > 40) { cpT = 2; checkpoint = { pos: p.clone(), dim: nd() } }
     if (st.hp <= 0) die(st.cause || "you were killed")
-    else if (p.y < terrainY(p.x, p.z) - 8.5 || p.y < -60) die("fell into the void")
+    // safety net: if anything ever drops the player below the world, throw them back up instead of killing them
+    else if (p.y < terrainY(p.x, p.z) - 3) { p.y = terrainY(p.x, p.z) + 2; st.vel.set(st.vel.x * 0.3, 24, st.vel.z * 0.3); st.ground = false; st.shake = 0.5; sfx.play("whoosh") }
     p.y = Math.min(p.y, 80)
   }
 
@@ -921,7 +916,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { st, chunks, genMs, groundH: terrainY, keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
