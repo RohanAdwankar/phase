@@ -212,7 +212,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const MAG = 12, RELOAD = 1.2
   const startReload = () => { if (st.reload > 0 || st.ammo === MAG) return; st.reload = RELOAD; sfx.play("tick") }
   const shootPistol = () => {
-    sfx.play("pistol"); if (st.power?.k !== "rapid pistol") st.ammo--
+    sfx.play("pistol"); if (st.power?.k !== "no reload") st.ammo--
     const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V())
     dir.x += (Math.random() - 0.5) * 0.012; dir.y += (Math.random() - 0.5) * 0.012; dir.normalize()
     let tMin = 150, hit: Enemy | null = null
@@ -321,7 +321,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const HEAL: Record<Kind, number> = { swarmer: 0.1, flyer: 0.1, walker: 0.2, brute: 0.5, boss: 1, guardian: 0.6 }, DROP: Record<Kind, number> = { swarmer: 0.04, flyer: 0.1, walker: 0.14, brute: 0.4, boss: 0, guardian: 1 }
   const orbs: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; life: number; power?: boolean }[] = [], orbGeo = new THREE.OctahedronGeometry(0.3), orbMat = new THREE.MeshBasicMaterial({ color: 0xffd36a }), powerMat = new THREE.MeshBasicMaterial({ color: 0xa8f4ff, toneMapped: false })
   // brutes sometimes drop a glowing cyan orb that grants a timed power for one weapon
-  const POWERS: [string, string][] = [["explosive arrows", "every arrow explodes where it lands"], ["whirlwind sword", "every sword swing is a 360 cut"], ["rapid pistol", "no reloading, twice the fire rate"]]
+  const POWERS: [string, string][] = [["explosive arrows", "every arrow explodes where it lands"], ["whirlwind sword", "every sword swing is a 360 cut"], ["no reload", "the pistol never runs dry and fires twice as fast"]]
   const POWERUPS: [string, () => void][] = [["damage +10%", () => { st.boon.dmg += 0.5 }], ["move speed +4%", () => { st.boon.spd += 0.5 }], ["cooldowns -8%", () => { st.boon.cd += 0.5 }], ["max health +10", () => { st.maxHp += 10 }]]
   const onKill = (e: Enemy) => {
     st.hp = Math.min(st.maxHp, st.hp + HEAL[e.kind] * st.maxHp)
@@ -898,7 +898,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     else if (weapon === "pistol") {
       if (st.reload > 0) { st.reload -= DT; if (st.reload <= 0) { st.ammo = MAG; sfx.play("clink") } }
       else if (st.ammo <= 0) startReload()
-      else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = st.power?.k === "rapid pistol" ? 0.045 : 0.09 }
+      else if (st.fire && st.fireT <= 0) { shootPistol(); st.fireT = st.power?.k === "no reload" ? 0.045 : 0.09 }
     }
     else if (st.fire && st.fireT <= 0) {
       if (st.draw === 0) sfx.draw.start(); st.draw = Math.min(1, st.draw + DT / 0.55); sfx.draw.set(st.draw)
