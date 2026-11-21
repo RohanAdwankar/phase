@@ -32,7 +32,7 @@ const rayBox = (o: THREE.Vector3, d: THREE.Vector3, mn: THREE.Vector3, mx: THREE
   return t0
 }
 
-// ray against a collider: boulders are real ellipsoids (so arrows never stick to empty corners), everything else an axis-aligned box
+// ray against a collider: boulders are tested against their real triangles (after a cheap padded-ellipsoid check), everything else is an axis-aligned box
 const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
   if (!b.ell) return rayBox(o, d, b.min, b.max)
   const e = b.ell, rx = e.rx * 1.3, rz = e.rz * 1.3, hh = e.hh * 1.3, ox = (o.x - e.cx) / rx, oy = (o.y - e.cy) / hh, oz = (o.z - e.cz) / rz, dx = d.x / rx, dy = d.y / hh, dz = d.z / rz
@@ -283,8 +283,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
     const c = e.pos.clone().setY(e.pos.y + 1.5)
     for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
-    const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260], boss: [16, 20, 420] }[e.kind]
+    const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260], boss: [16, 20, 420], guardian: [11, 15, 300] }[e.kind]
     if (e.kind === "boss") bossDown(e)
+    if (e.kind === "guardian") for (const sh of shrines.values()) for (const py of sh.pylons) if (py.guard === e) { py.cleared = true; py.guard = null; banner("the guardian falls. the beacon is yours to claim", 3) }
     explode(c, e.dim, big[0], big[1], 0.7 + big[0] * 0.05, 0)
     fx.spark(c, big[2], new V(0, 1, 0), ORANGE); fx.smoke(c, Math.round(big[0] * 2), new THREE.Color(0x2a2a2a), big[0] * 0.34)
   }
@@ -316,7 +317,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
 
   const dm = () => 1 + 0.2 * st.boon.dmg, cdm = () => Math.pow(0.85, st.boon.cd)
   // kills heal by enemy size, and sometimes drop a powerup orb that stacks for the rest of the run
-  const HEAL: Record<Kind, number> = { swarmer: 0.1, flyer: 0.1, walker: 0.2, brute: 0.5, boss: 1 }, DROP: Record<Kind, number> = { swarmer: 0.04, flyer: 0.1, walker: 0.14, brute: 0.4, boss: 0 }
+  const HEAL: Record<Kind, number> = { swarmer: 0.1, flyer: 0.1, walker: 0.2, brute: 0.5, boss: 1, guardian: 0.6 }, DROP: Record<Kind, number> = { swarmer: 0.04, flyer: 0.1, walker: 0.14, brute: 0.4, boss: 0, guardian: 1 }
   const orbs: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; life: number }[] = [], orbGeo = new THREE.OctahedronGeometry(0.3), orbMat = new THREE.MeshBasicMaterial({ color: 0xffd36a })
   const POWERUPS: [string, () => void][] = [["damage +10%", () => { st.boon.dmg += 0.5 }], ["move speed +4%", () => { st.boon.spd += 0.5 }], ["cooldowns -8%", () => { st.boon.cd += 0.5 }], ["max health +10", () => { st.maxHp += 10 }]]
   const onKill = (e: Enemy) => {
@@ -394,7 +395,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
   }
   const bombStep = (dt: number) => {
-    st.gCd -= dt; st.tCd -= dt; orbTick(dt)
+    st.gCd -= dt; st.tCd -= dt; orbTick(dt); shotTick(dt)
     if (st.tnt < TNT_MAX && (st.tntT += dt) >= TNT_RECHARGE * cdm()) { st.tnt++; st.tntT = 0 }
     for (let i = bombs.length - 1; i >= 0; i--) {
       const b = bombs[i]; b.fuse -= dt
@@ -438,7 +439,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if ((e.lv ?? 0) < st.level) { const k = (1 + 0.5 * st.level) / (1 + 0.5 * (e.lv ?? 0)); e.hp *= k; if (e.maxHp) e.maxHp *= k; e.lv = st.level }
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
-      let moving = false, mx = 0, mz = 0
+      let moving = false, mx = 0, mz = 0, gsp = 1
       const live = e.kind === "boss" || e.dim === nd() // the warden strikes across dimensions
       if (e.kind === "walker") { moving = dist < 70 && dist > 9; if (moving) { mx = dx / dist; mz = dz / dist } }
       else if (e.kind === "swarmer") { moving = dist < 90 && dist > 1.4; if (moving) { mx = dx / dist; mz = dz / dist } }
@@ -448,6 +449,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         const want = 15, side = e.t2 || (e.t2 = Math.random() < 0.5 ? 1 : -1)
         mx = (dist > want + 2 ? dx / dist : dist < want - 3 ? -dx / dist : 0) + (-dz / dist) * side * 0.8; mz = (dist > want + 2 ? dz / dist : dist < want - 3 ? -dz / dist : 0) + (dx / dist) * side * 0.8
         const l = Math.hypot(mx, mz) || 1; mx /= l; mz /= l
+      } else if (e.kind === "guardian") {
+        const g = guardianAI(e, dt, dx, dz, dist); moving = g.moving; mx = g.mx; mz = g.mz; gsp = g.spd
       } else {
         // brute: lumbers, then charges; slams when in reach
         e.t1 -= dt
@@ -458,13 +461,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
         e.fireT -= dt
       }
-      const spd = ((e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level)
+      const spd = (e.kind === "guardian" ? e.speed * gsp : (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level)
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       if (e.kind !== "boss") rocksNear(e) // the warden glides through rock
       const gy = terrainY(e.pos.x, e.pos.z)
       e.pos.y = e.kind === "flyer" ? gy + e.fy + Math.sin(time * 2.2 + e.pos.x) * 0.7 : gy
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
-      e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" ? Math.max(0, e.fireT / 0.9) : 0)
+      e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" || e.kind === "guardian" ? Math.max(0, e.fireT / 0.9) : 0)
       if (e.kind === "boss") { bossTick(e, dt, dist); rehome(e) }
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
@@ -512,7 +515,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // Beams of light let you spot the pylons while peeking at other dimensions. Light them in the order shown, or the shrine resets and a swarm is sent.
   // Lighting all five wakes the warden, a boss that keeps slipping between dimensions and can only be hurt in the one it is standing in.
   const SS = 300
-  type Pylon = { i: number; dim: number; x: number; z: number; ty: number; top: number; placed: boolean; group: THREE.Group | null; chunk: Chunk | null; crystal: THREE.Mesh | null }
+  type Pylon = { i: number; dim: number; x: number; z: number; ty: number; top: number; placed: boolean; group: THREE.Group | null; chunk: Chunk | null; crystal: THREE.Mesh | null; guard: Enemy | null; cleared: boolean }
   type Shrine = { cx: number; cz: number; order: number[]; pylons: Pylon[]; lit: boolean[]; next: number; state: "idle" | "boss" | "done"; boss: Enemy | null }
   const shrines = new Map<string, Shrine>()
   const GLOWC = GLOW.map(c => new THREE.Color(c))
@@ -528,7 +531,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let cx = (sx + 0.5) * SS + (hash(sx, sz, 1) - 0.5) * 110, cz = (sz + 0.5) * SS + (hash(sx, sz, 2) - 0.5) * 110
     const d0 = Math.hypot(cx, cz); if (d0 < 140) { cx *= 140 / Math.max(1, d0); cz *= 140 / Math.max(1, d0) }
     const order = [0, 1, 2, 3, 4]; for (let i = 4; i > 0; i--) { const j = Math.floor(hash(sx, sz, 10 + i) * (i + 1)); [order[i], order[j]] = [order[j], order[i]] }
-    const pylons: Pylon[] = [...Array(N)].map((_, i) => { const a = (i / N) * Math.PI * 2 + hash(sx, sz, 20 + i) * 0.8, r = 30 + hash(sx, sz, 30 + i) * 8; return { i, dim: i, x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, ty: 0, top: 0, placed: false, group: null, chunk: null, crystal: null } })
+    const pylons: Pylon[] = [...Array(N)].map((_, i) => { const a = (i / N) * Math.PI * 2 + hash(sx, sz, 20 + i) * 0.8, r = 30 + hash(sx, sz, 30 + i) * 8; return { i, dim: i, x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, ty: 0, top: 0, placed: false, group: null, chunk: null, crystal: null, guard: null, cleared: false } })
     s = { cx, cz, order, pylons, lit: [false, false, false, false, false], next: 0, state: "idle", boss: null }
     shrines.set(key, s); return s
   }
@@ -613,6 +616,70 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       sfx.play("zap", from, 1.2); if (Math.random() < 0.75 * dodge()) hurtPlayer(e, 13, "blasted by the warden")
     }
   }
+  // projectiles that fly in the dimension of whoever fired them
+  const shots: { mesh: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; dim: number; src: Enemy }[] = []
+  const shotGeo = new THREE.SphereGeometry(0.45, 8, 6)
+  const spawnShot = (e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, speed: number, dmg: number) => {
+    const mesh = new THREE.Mesh(shotGeo, new THREE.MeshBasicMaterial({ color: GLOWC[e.dim].clone().multiplyScalar(2), toneMapped: false })); mesh.position.copy(from); scene.add(mesh)
+    shots.push({ mesh, pos: mesh.position, vel: dir.clone().normalize().multiplyScalar(speed), life: 3.2, dmg, dim: e.dim, src: e })
+  }
+  const shotTick = (dt: number) => {
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const o = shots[i]; o.pos.addScaledVector(o.vel, dt); o.life -= dt; o.mesh.visible = o.dim === nd()
+      if (o.dim === nd() && Math.hypot(st.pos.x - o.pos.x, st.pos.y + 1 - o.pos.y, st.pos.z - o.pos.z) < 1.5) { hurtPlayer(o.src, o.dmg, "hit by a guardian's orb"); o.life = 0 }
+      if (o.life <= 0) { o.mesh.removeFromParent(); (o.mesh.material as THREE.Material).dispose(); shots.splice(i, 1) }
+    }
+  }
+  // the five guardians, one per dimension, each with its own way of fighting
+  const GUARD_NAMES = ["stomper", "sniper", "summoner", "charger", "blinker"]
+  const guardianAI = (e: Enemy, dt: number, dx: number, dz: number, dist: number) => {
+    const a = (e.ai ??= {}), v = e.variant ?? 0, ux = dx / dist, uz = dz / dist, from = new V(e.pos.x, e.pos.y + 4, e.pos.z)
+    a.t = (a.t ?? 2.5) - dt
+    let moving = dist < 90 && dist > 6, mx = ux, mz = uz, spd = 1
+    if (e.home && Math.hypot(e.pos.x - e.home.x, e.pos.z - e.home.z) > 55) { const hx = e.home.x - e.pos.x, hz = e.home.z - e.pos.z, hl = Math.hypot(hx, hz) || 1; mx = hx / hl; mz = hz / hl; moving = true; return { moving, mx, mz, spd } }
+    const live = e.dim === nd()
+    if (v === 0) { // stomper: winds up, then a shockwave that only hurts if you are on the ground
+      if (a.tele > 0) { moving = false; e.fireT = 0.9 * (a.tele / 0.7); if ((a.tele -= dt) <= 0) {
+        sfx.play("bigboom", e.pos, 0.8); st.shake = Math.max(st.shake, live ? 0.6 : 0)
+        for (let k = 0; k < 28; k++) { const an = (k / 28) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 11, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 11), 3, new V(0, 1, 0), DUST) }
+        if (live && st.ground && dist < 13) { hurtPlayer(e, 24, "crushed by a stomper"); st.vel.y = 10; st.ground = false } } }
+      else if (a.t <= 0 && dist < 22) { a.tele = 0.7; a.t = 4.2 }
+    } else if (v === 1) { // sniper: stays far away and locks a telegraphed shot you must step out of
+      moving = dist > 44 || dist < 28; if (dist < 28) { mx = -ux; mz = -uz }
+      if (a.tele > 0) { moving = false; a.beamT = (a.beamT ?? 0) - dt; if (a.beamT <= 0) { a.beamT = 0.12; beam(from, new V(a.lx, a.ly, a.lz), 0.015, 0.14) }
+        if ((a.tele -= dt) <= 0) { beam(from, new V(a.lx, a.ly, a.lz), 0.09, 0.25); sfx.play("zap", e.pos, 1.3); if (live && Math.hypot(st.pos.x - a.lx, st.pos.z - a.lz) < 2.4 && Math.abs(st.pos.y + 1 - a.ly) < 3.5) hurtPlayer(e, 30, "sniped") } }
+      else if (a.t <= 0 && dist < 80 && live && clearShot(e)) { a.tele = 1; a.t = 3.6; a.lx = st.pos.x; a.ly = st.pos.y + 1.2; a.lz = st.pos.z }
+    } else if (v === 2) { // summoner: keeps its distance, calls swarmers, and mends itself while they live
+      moving = dist > 30 || dist < 20; if (dist < 20) { mx = -ux; mz = -uz }
+      if (a.t <= 0) { a.t = 6; summon("swarmer", 3 + Math.min(3, st.level), 4, 8, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }
+      let kids = 0; for (const c of nearChunks(2)) for (const o of c.enemies) if (o.kind === "swarmer" && o.dim === e.dim && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 35) kids++
+      if (kids) e.hp = Math.min(e.maxHp ?? e.hp, e.hp + 7 * dt)
+    } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed
+      if (a.stun > 0) { a.stun -= dt; moving = false }
+      else if (a.chg > 0) { a.chg -= dt; mx = a.cx; mz = a.cz; spd = 6.5; moving = true
+        if (live && dist < 4 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 30, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false }
+        if (a.chg <= 0) a.stun = 1.6 }
+      else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; a.cx = ux; a.cz = uz; sfx.play("surge", e.pos, 1) } }
+      else if (a.t <= 0 && dist < 45 && dist > 8) { a.tele = 0.9; a.t = 5 }
+    } else { // blinker: hops around you and throws a ring of slow orbs
+      moving = false
+      if (a.t <= 0) { a.t = 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
+        fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; sfx.play("phase", e.pos, 1)
+        const org = new V(e.pos.x, terrainY(e.pos.x, e.pos.z) + 3, e.pos.z)
+        for (let k = 0; k < 8; k++) { const t2 = (k / 8) * Math.PI * 2; spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), 12, 10) } }
+    }
+    return { moving, mx, mz, spd }
+  }
+  const tintGuardian = (e: Enemy) => {
+    e.mesh.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; const c = (m.material as THREE.MeshStandardMaterial).clone(); if (c.color) c.color.lerp(GLOWC[e.dim], 0.5); c.userData = { xray: true }; track(e.dim, c); m.material = c })
+  }
+  const spawnGuardian = (py: Pylon) => {
+    let best = { x: py.x + 9, z: py.z, c: -1e9 }
+    for (let k = 0; k < 8; k++) { const an = (k / 8) * Math.PI * 2, x = py.x + Math.cos(an) * 10, z = py.z + Math.sin(an) * 10, c = clearance(py.dim, x, z); if (c > best.c) best = { x, z, c } }
+    const pos = new V(best.x, terrainY(best.x, best.z), best.z), e = makeEnemy("guardian", world.foe, py.dim, pos), ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) return
+    e.variant = py.dim; e.hp = e.maxHp = 80 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
+    tintGuardian(e); ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
+  }
   const bossDown = (e: Enemy) => {
     for (const sh of shrines.values()) if (sh.boss === e) { sh.state = "done"; sh.boss = null }
     st.level++
@@ -629,9 +696,20 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (dd < 110) {
         for (const py of sh.pylons) {
           ensurePylon(sh, py)
+          if (py.group && !py.cleared && sh.state === "idle") {
+            if (py.guard && !py.guard.mesh.parent) py.guard = null // its chunk unloaded: it respawns
+            if (!py.guard) spawnGuardian(py)
+            // the guardian defends its crystal: it steps in front of it when you come close
+            const g = py.guard, dPy = Math.hypot(p.x - py.x, p.z - py.z)
+            if (g && nd() === py.dim && dPy < 16 && Math.hypot(g.pos.x - py.x, g.pos.z - py.z) > 10 && ((g.ai ??= {}).def = (g.ai.def ?? 0) - dt) <= 0) {
+              g.ai.def = 5; const ax = (p.x - py.x) / (dPy || 1), az = (p.z - py.z) / (dPy || 1); fx.spark(new V(g.pos.x, g.pos.y + 3, g.pos.z), 30, new V(0, 1, 0), GLOWC[g.dim]); g.pos.x = py.x + ax * 6; g.pos.z = py.z + az * 6; sfx.play("phase", g.pos, 1)
+            }
+          }
           if (py.group && py.crystal) { py.crystal.rotation.y += dt * 1.6; py.crystal.position.y = py.top + 1.9 + Math.sin(time * 2 + py.i) * 0.18; const hot = sh.state === "idle" && sh.order[sh.next] === py.i; py.crystal.scale.setScalar(hot ? 1 + 0.18 * Math.sin(time * 7) : 1); py.crystal.scale.y *= 1.5 }
           if (sh.state === "idle" && !sh.lit[py.i] && nd() === py.dim && st.deadT <= 0 && py.group && Math.hypot(p.x - py.x, p.z - py.z) < 3.4 && Math.abs(p.y - py.top) < 3.2) {
-            if (sh.order[sh.next] === py.i) {
+            if (!py.cleared) { // the guardian still stands: the crystal throws you back
+              const ax = p.x - py.x, az = p.z - py.z, al = Math.hypot(ax, az) || 1; st.vel.set(ax / al * 14, 13, az / al * 14); st.ground = false; st.wallT = 0; st.shake = 0.7; sfx.play("hurt"); banner("defeat its guardian first", 2)
+            } else if (sh.order[sh.next] === py.i) {
               sh.lit[py.i] = true; sh.next++; setLit(py, true); sfx.play("ready"); fx.spark(new V(py.x, py.top + 2, py.z), 60, new V(0, 1, 0), new THREE.Color(0xffe9a0)); st.kick = 1
               if (sh.next >= N) startBoss(sh); else banner(`pylon ${sh.next} of ${N}`, 1.4)
             } else {
@@ -646,8 +724,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       }
     }
     st.focus = best && bd < 260 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
-    for (const sh of shrines.values()) if (sh.boss && sh.state === "boss") st.bossE = sh.boss
-    if (st.bossE && !(st.bossE.mesh.parent)) st.bossE = null
+    let be: Enemy | null = null
+    for (const sh of shrines.values()) { if (sh.boss && sh.state === "boss") be = sh.boss; if (!be) for (const py of sh.pylons) if (py.guard && py.guard.hp > 0 && py.guard.dim === nd() && Math.hypot(p.x - py.x, p.z - py.z) < 60) be = py.guard }
+    st.bossE = be && be.mesh.parent ? be : null
     st.bannerT = Math.max(0, st.bannerT - dt)
   }
   const stream = () => {
@@ -899,7 +978,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         const e = st.bossE, bw = 460, f = Math.max(0, e.hp) / (e.maxHp ?? e.hp), warn = (e.shiftT ?? 9) < 1.3
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(w / 2 - bw / 2 - 3, 52, bw + 6, 14); ctx.fillStyle = hexs(GLOW[e.dim]); ctx.fillRect(w / 2 - bw / 2, 55, bw * f, 8)
         ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"
-        ctx.fillText(`the warden   in dimension ${e.dim + 1}${warn ? "   shifting!" : ""}${e.dim === nd() ? "   you can hit it" : "   phase to its dimension"}`, w / 2, 45)
+        ctx.fillText(e.kind === "guardian" ? `guardian: ${GUARD_NAMES[e.variant ?? 0]}` : `the warden${warn ? "   shifting!" : ""}${e.dim === nd() ? "" : "   phase to its dimension"}`, w / 2, 45)
       } else if (st.focus) {
         // only the next beacon matters: an arrow to it, tinted by its dimension, with that dimension's number and the distance
         const s2 = st.focus, py = s2.pylons[s2.order[Math.min(s2.next, N - 1)]], rel2 = Math.atan2(py.x - p.x, -(py.z - p.z)) - (-st.yaw), ang2 = Math.atan2(Math.sin(rel2), Math.cos(rel2)), col = hexs(GLOW[py.dim])
