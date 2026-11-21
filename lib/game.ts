@@ -377,7 +377,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const throwGrenade = () => {
     if (st.gCd > 0) return
-    st.gCd = 16 * cdm(); sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
+    st.gCd = 16 * cdm() * (practice ? 0.1 : 1); sfx.play("whoosh", undefined, 0.6); const o = cam.getWorldPosition(new V()), dir = cam.getWorldDirection(new V()), m = gren()
     m.position.copy(o).addScaledVector(dir, 0.6); scene.add(m)
     bombs.push({ kind: "grenade", mesh: m, pos: m.position.clone(), vel: dir.clone().multiplyScalar(19).add(new V(0, 4, 0)).addScaledVector(st.vel, 0.4), dim: nd(), fuse: 1.7, n: 1 }); st.kick = 1.2
   }
@@ -865,6 +865,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ["scroll a little: you peek into the next dimension and see what is there", () => Math.abs(d - Math.round(d)) > 0.25],
     ["keep phasing the same way: the five dimensions loop round", () => prBase.n >= 5],
     ["click to shoot. r reloads", () => st.kills > prBase.kills, () => { summon("walker", 2, 14, 18, nd(), 0, 1) }],
+    ["press g to throw a grenade into the crowd (pistol)", () => st.gCd > 0, () => { summon("walker", 3, 14, 20, nd(), 0, 0.6); summon("swarmer", 5, 14, 20, nd(), 0, 0.6) }],
+    ["press 2 for the bow, then g to plant tnt where they will pass. plant again on the same spot to stack it", () => st.tnt < 6, () => { summon("walker", 3, 24, 32, nd(), 0, 0.6) }],
+    ["draw the bow and shoot the tnt to set it off", () => bombs.every(b => b.kind !== "tnt")],
     ["press 3, hold the mouse to charge the sword and release looking up: you surge where you look", () => st.surge > 0],
     ["that is everything. keep practicing, or press escape and go to the real game", () => prT > 8],
   ]
@@ -1072,7 +1075,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { rayCollider, st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { rayCollider, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
