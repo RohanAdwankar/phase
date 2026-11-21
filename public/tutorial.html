@@ -35,7 +35,7 @@ const steps = [
     init() { S.objs = []; S.last = cur() } },
   { t: "strike back", text: "an enemy in your dimension. click to shoot. r reloads", keys: ["mouse"],
     init() { S.objs = [enemy(W + 40, cur())] } },
-  { t: "bow launch", text: "hold the mouse to draw the bow. release at full draw while standing: it launches you. aim down to go up, a little low to fly far", keys: ["mouse"],
+  { t: "sword surge", text: "hold the mouse to charge the sword. release at full charge while looking up: you surge that way with a 360 cut", keys: ["mouse"],
     init() { S.objs = [] } },
 ]
 reset()
@@ -57,8 +57,8 @@ addEventListener("mousedown", e => {
 })
 addEventListener("mouseup", () => {
   S.down = false; const t = steps[si]?.t
-  if (t === "bow launch" && S.draw > 0 && !S.launched) {
-    if (S.draw >= 0.99) { S.launched = true; S.vy = -1250 * k(); S.msg = "" } else S.msg = "keep holding until the bar is full"
+  if (t === "sword surge" && S.draw > 0 && !S.launched) {
+    if (S.draw >= 0.99) { S.launched = true; S.vy = -1250 * k(); S.msg = "" } else S.msg = "keep holding until the bar is full, then release"
     S.draw = 0
   }
 })
@@ -73,7 +73,7 @@ const update = dt => {
   if (S.fail > 0) { S.fail -= dt; if (S.fail <= 0) reset(); return }
   if (S.done > 0) { S.done += dt; if (S.done > 1.6) next(); return }
   // the player is only ever lifted by a jump or a launch
-  if (S.vy || S.py) { S.vy += 2300 * k() * dt; S.py += S.vy * dt; if (S.py >= 0) { S.py = 0; S.vy = 0; if (S.launched) { S.done = 0.001; S.msg = "that is the fastest way up" } } }
+  if (S.vy || S.py) { S.vy += 2300 * k() * dt; S.py += S.vy * dt; if (S.py >= 0) { S.py = 0; S.vy = 0; if (S.launched) { S.done = 0.001; S.msg = "aim anywhere and it takes you there" } } }
   const o = S.objs[0], v = 330 * k()
   if (st.t === "jump" || st.t === "phase to dodge" || st.t === "strike back") {
     if (!S.wait && !S.released && o.x - px() < (st.t === "jump" ? 150 : 330) * k()) S.wait = true
@@ -91,7 +91,7 @@ const update = dt => {
   if (st.t === "it loops") {
     if (cur() !== S.last) { S.n++; S.last = cur(); if (S.n >= N) { S.done = 0.001; S.msg = "five switches and you are home" } }
   }
-  if (st.t === "bow launch" && S.down && !S.launched) S.draw = Math.min(1, S.draw + dt / 0.55)
+  if (st.t === "sword surge" && S.down && !S.launched) S.draw = Math.min(1, S.draw + dt)
   if (S.burst) S.burst += dt
 }
 

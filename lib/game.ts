@@ -197,11 +197,6 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     mesh.position.copy(o).addScaledVector(dir, 0.8).add(new V(0.12, -0.12, 0).applyQuaternion(cam.quaternion)); mesh.quaternion.setFromUnitVectors(new V(0, 0, -1), dir); scene.add(mesh)
     arrows.push({ mesh, vel: dir.clone().multiplyScalar(26 + 52 * power).add(st.vel.clone().multiplyScalar(0.35)), dim: nd(), power, life: 6, stuck: false })
     st.kick = 1.6
-    // a fully drawn shot from the ground kicks you the opposite way: aim down to rocket straight up, aim a little low to be thrown far
-    if (power >= 0.99 && (st.ground || st.coyote > 0)) {
-      st.vel.addScaledVector(dir, -26); st.vel.y += 7; st.ground = false; st.coyote = 0; st.slide = false; st.shake = 0.7
-      sfx.play("whoosh", undefined, 1.4); fx.spark(new V(st.pos.x, st.pos.y + 0.2, st.pos.z), 40, new V(0, 1, 0), DUST); fx.smoke(new V(st.pos.x, st.pos.y, st.pos.z), 6, DUST, 1.4)
-    }
   }
   const MAG = 12, RELOAD = 1.2
   const startReload = () => { if (st.reload > 0 || st.ammo === MAG) return; st.reload = RELOAD; sfx.play("tick") }
@@ -259,9 +254,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (any) { st.hit = 0.2; st.kick = 2; sfx.play("hit") }
   }
   const startSurge = (charge: number) => {
-    const f = new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), dist = 5 + 16 * charge, dur = 0.26 + 0.2 * charge
+    // a fully charged surge flies where you look, so aiming up carries the 360 cut skyward; a partial one stays level
+    const full = charge >= 0.99, f = full ? cam.getWorldDirection(new V()) : new V(-Math.sin(st.yaw), 0, -Math.cos(st.yaw)), dist = (full ? 24 : 5 + 16 * charge), dur = 0.26 + 0.2 * charge
     sfx.play("surge"); st.surge = 1; st.surgeLen = dur; st.surgeSpd = dist / dur; st.surgeHit.clear()
-    st.sdir.copy(f); st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
+    st.sdir.copy(f); if (!full) st.vel.y = Math.max(st.vel.y, 1.5); st.charge = 0
     { const back = new V(st.pos.x - f.x * 3, st.pos.y + 0.2, st.pos.z - f.z * 3); fx.spark(back, 8, f.clone().negate(), DUST); fx.smoke(back, 3, DUST, 1.2) }
   }
   // a dying walker blows up: a big burst that hurts neighbours, and any TNT it was standing on goes off too
@@ -683,7 +679,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     } else v.y -= G * DT * (glide ? 0.08 : 1)
     st.wallCD -= DT
 
-    if (st.surge > 0) { v.x = st.sdir.x * st.surgeSpd; v.z = st.sdir.z * st.surgeSpd }
+    if (st.surge > 0) { v.x = st.sdir.x * st.surgeSpd; v.z = st.sdir.z * st.surgeSpd; if (st.sdir.y) v.y = st.sdir.y * st.surgeSpd }
     const h = st.slide ? 1 : 1.8
     const vyBefore = v.y, wasGround = st.ground
     hitN.set(0, 0, 0)
@@ -699,7 +695,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     if (weapon === "sword") {
       if (st.surge > 0) {
         st.surge -= DT / st.surgeLen; st.spin = 1 - Math.max(0, st.surge); surgeCut()
-        if (st.surge <= 0) { st.surge = 0; st.fireT = 0.9; st.vel.x = st.sdir.x * 8; st.vel.z = st.sdir.z * 8 }
+        if (st.surge <= 0) { st.surge = 0; st.fireT = 0.9; st.vel.x = st.sdir.x * 8; st.vel.z = st.sdir.z * 8; if (st.sdir.y) st.vel.y = st.sdir.y * 8 }
       } else if (st.swing > 0) {
         const before = st.swing; st.swing -= DT / SWING
         if (before > 0.55 && st.swing <= 0.55) swingCut()
