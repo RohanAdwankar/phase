@@ -93,7 +93,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -603,7 +603,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (sh.state === "boss" && sh.boss && !sh.boss.mesh.parent && !dying.has(sh.boss)) { sh.state = "idle"; sh.boss = null; resetShrine(sh) }
       }
     }
-    st.focus = best && bd < 130 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
+    st.focus = best && bd < 260 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
     for (const sh of shrines.values()) if (sh.boss && sh.state === "boss") st.bossE = sh.boss
     if (st.bossE && !(st.bossE.mesh.parent)) st.bossE = null
     st.bannerT = Math.max(0, st.bannerT - dt)
@@ -854,6 +854,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       } else if (st.focus) {
         const s2 = st.focus; ctx.fillStyle = "#fff"; ctx.font = "15px ui-monospace, monospace"; ctx.fillText("shrine: light the pylons left to right. the number is the dimension each one stands in, a filled pale dot is already lit", w / 2, 45)
         s2.order.forEach((dm2, k) => { const x = w / 2 + (k - 2) * 40, lit = s2.lit[dm2]; ctx.beginPath(); ctx.arc(x, 72, k === s2.next ? 12 : 9, 0, 7); ctx.fillStyle = lit ? "#fff3c0" : hexs(GLOW[dm2]); if (lit || k === s2.next) ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = hexs(GLOW[dm2]); ctx.stroke(); ctx.fillStyle = lit ? "#222" : "#fff"; ctx.font = "11px ui-monospace, monospace"; ctx.fillText(String(dm2 + 1), x, 76) })
+        // always point at the pylon you need next, in its dimension's colour, wherever you are in the shrine
+        const py = s2.pylons[s2.order[Math.min(s2.next, N - 1)]], rel2 = Math.atan2(py.x - p.x, -(py.z - p.z)) - (-st.yaw), ang2 = Math.atan2(Math.sin(rel2), Math.cos(rel2)), col = hexs(GLOW[py.dim])
+        ctx.save(); ctx.translate(w / 2, 112); ctx.rotate(ang2); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
+        ctx.fillStyle = col; ctx.font = "14px ui-monospace, monospace"; ctx.fillText(`next: dimension ${py.dim + 1}, ${Math.round(Math.hypot(py.x - p.x, py.z - p.z))} m${nd() !== py.dim ? ", phase there" : ""}`, w / 2, 142)
       } else if (st.target) {
         const dx = st.target.cx - p.x, dz = st.target.cz - p.z, rel = Math.atan2(dx, -dz) - (-st.yaw) , ang = Math.atan2(Math.sin(rel), Math.cos(rel))
         ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
