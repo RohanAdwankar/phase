@@ -517,19 +517,29 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     s = { cx, cz, order, pylons, lit: [false, false, false, false, false], next: 0, state: "idle", boss: null }
     shrines.set(key, s); return s
   }
-  const spotOpen = (dim: number, x: number, z: number) => {
-    for (const ch of chunks.values()) {
-      for (const b of ch.boxes) if (b.dim === dim && (b.ell ? Math.hypot(b.ell.cx - x, b.ell.cz - z) < Math.max(b.ell.rx, b.ell.rz) + 6 : x > b.min.x - 6 && x < b.max.x + 6 && z > b.min.z - 6 && z < b.max.z + 6)) return false
-    }
-    return true
+  // distance from a point to the nearest rock of a dimension
+  const clearance = (dim: number, x: number, z: number) => {
+    let m = 1e9
+    for (const ch of chunks.values()) for (const b of ch.boxes) if (b.dim === dim) m = Math.min(m, b.ell ? Math.hypot(b.ell.cx - x, b.ell.cz - z) - Math.max(b.ell.rx, b.ell.rz) : Math.hypot(Math.max(b.min.x - x, 0, x - b.max.x), Math.max(b.min.z - z, 0, z - b.max.z)))
+    return m
   }
   const setLit = (p: Pylon, lit: boolean) => { if (p.crystal) p.crystal.material = lit ? pylonMats[p.dim].on : pylonMats[p.dim].off }
   const ensurePylon = (sh: Shrine, p: Pylon) => {
     const ch = chunks.get(chunkKey(Math.floor(p.x / CH), Math.floor(p.z / CH))); if (!ch) return
     if (p.chunk === ch && p.group?.parent) return
     if (!p.placed) {
-      for (let k = 0; k < 14 && !spotOpen(p.dim, p.x, p.z); k++) { const a = Math.atan2(p.z - sh.cz, p.x - sh.cx) + (hash(p.i, k, sh.cx) - 0.5) * 0.9, r = 26 + hash(k, p.i, sh.cz) * 18; p.x = sh.cx + Math.cos(a) * r; p.z = sh.cz + Math.sin(a) * r }
-      p.placed = true
+      // wait until the ground around the shrine exists, so the search below sees every rock
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (!chunks.has(chunkKey(Math.floor(sh.cx / CH) + dx, Math.floor(sh.cz / CH) + dz))) return
+      // choose the loaded spot with the most open ground around it and the flattest terrain, so a pylon is never buried in rock or a hill
+      let best = { x: p.x, z: p.z, score: -1e9 }
+      for (let k = 0; k < 120; k++) {
+        const a = hash(p.i, k, sh.cx) * Math.PI * 2, r = 24 + hash(k, p.i, sh.cz) * 40, x = sh.cx + Math.cos(a) * r, z = sh.cz + Math.sin(a) * r
+        if (!chunks.has(chunkKey(Math.floor(x / CH), Math.floor(z / CH)))) continue
+        const h0 = terrainY(x, z), slope = Math.max(...[[8, 0], [-8, 0], [0, 8], [0, -8]].map(([dx, dz]) => Math.abs(terrainY(x + dx, z + dz) - h0)))
+        const score = Math.min(clearance(p.dim, x, z), 14) - slope * 3
+        if (score > best.score) best = { x, z, score }
+      }
+      p.x = best.x; p.z = best.z; p.placed = true
     }
     const c2 = chunks.get(chunkKey(Math.floor(p.x / CH), Math.floor(p.z / CH))); if (!c2) return
     const h = 6.2, rad = 2.5, ty = terrainY(p.x, p.z), cy = ty + h * 0.45, topY = cy + h * 0.97
