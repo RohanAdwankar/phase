@@ -402,7 +402,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
   }
   const bombStep = (dt: number) => {
-    st.gCd -= dt; st.tCd -= dt; orbTick(dt); shotTick(dt)
+    st.gCd -= dt; st.tCd -= dt; orbTick(dt); shotTick(dt); zoneTick(dt)
     if (st.tnt < TNT_MAX && (st.tntT += dt) >= TNT_RECHARGE * cdm()) { st.tnt++; st.tntT = 0 }
     for (let i = bombs.length - 1; i >= 0; i--) {
       const b = bombs[i]; b.fuse -= dt
@@ -647,6 +647,21 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (o.life <= 0) { o.mesh.removeFromParent(); (o.mesh.material as THREE.Material).dispose(); shots.splice(i, 1) }
     }
   }
+  // red ground zones: a locked, directional area that will be hit when the timer ends, so you have to leave it
+  const zones: { mesh: THREE.Mesh; t: number; T: number; dim: number }[] = []
+  const zoneGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+  const spawnZone = (e: Enemy, ang: number, len: number, wd: number, T: number) => {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff1208, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false, side: THREE.DoubleSide }), mesh = new THREE.Mesh(zoneGeo, mat)
+    mesh.position.set(e.pos.x + Math.sin(ang) * len / 2, terrainY(e.pos.x + Math.sin(ang) * len / 2, e.pos.z + Math.cos(ang) * len / 2, e.dim) + 0.4, e.pos.z + Math.cos(ang) * len / 2)
+    mesh.scale.set(wd, 1, len); mesh.rotation.y = ang; mesh.renderOrder = 5; scene.add(mesh); zones.push({ mesh, t: T, T, dim: e.dim })
+  }
+  const zoneTick = (dt: number) => {
+    for (let i = zones.length - 1; i >= 0; i--) {
+      const z = zones[i]; z.t -= dt; z.mesh.visible = z.dim === nd(); (z.mesh.material as THREE.MeshBasicMaterial).opacity = 0.34 + 0.5 * (1 - Math.max(0, z.t) / z.T) * (0.7 + 0.3 * Math.sin(time * 24))
+      if (z.t <= -0.15) { z.mesh.removeFromParent(); (z.mesh.material as THREE.Material).dispose(); zones.splice(i, 1) }
+    }
+  }
+  const inZone = (e: Enemy, ang: number, len: number, wd: number) => { const ux = Math.sin(ang), uz = Math.cos(ang), px = st.pos.x - e.pos.x, pz = st.pos.z - e.pos.z, along = px * ux + pz * uz, lat = Math.abs(px * uz - pz * ux); return along > -1 && along < len && lat < wd / 2 + 0.7 }
   // the five guardians, one per dimension, each with its own way of fighting
   // bosses step away from planted tnt, so the plant-and-shoot trick has to be sprung on something they cannot see coming
   const tntAvoid = (e: Enemy) => {
@@ -663,15 +678,20 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const av = tntAvoid(e); if (av) return { moving: true, mx: av.x, mz: av.z, spd: 2.2 }
     if (e.home && Math.hypot(e.pos.x - e.home.x, e.pos.z - e.home.z) > 55) { const hx = e.home.x - e.pos.x, hz = e.home.z - e.pos.z, hl = Math.hypot(hx, hz) || 1; mx = hx / hl; mz = hz / hl; moving = true; return { moving, mx, mz, spd } }
     const live = e.dim === nd()
-    if (v === 0) { // stomper: winds up, then a shockwave that only hurts if you are on the ground
-      if (a.tele > 0) { moving = false; e.fireT = 0.9 * (a.tele / 0.7); if ((a.tele -= dt) <= 0) {
-        sfx.play("bigboom", e.pos, 0.8); st.shake = Math.max(st.shake, live ? 0.6 : 0)
-        for (let k = 0; k < 28; k++) { const an = (k / 28) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 11, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 11), 3, new V(0, 1, 0), DUST) }
-        if (live && st.ground && dist < 13) { hurtPlayer(e, 24, "crushed by a stomper"); st.vel.y = 10; st.ground = false }
-        if (enr) a.ring2 = 0.7 } }
-      else if (a.ring2 > 0 && (a.ring2 -= dt) <= 0) { sfx.play("bigboom", e.pos, 0.8); for (let k = 0; k < 36; k++) { const an = (k / 36) * Math.PI * 2; fx.spark(new V(e.pos.x + Math.cos(an) * 17, e.pos.y + 0.4, e.pos.z + Math.sin(an) * 17), 3, new V(0, 1, 0), DUST) }
-        if (live && st.ground && dist < 18 && dist > 5) { hurtPlayer(e, 22, "crushed by a stomper"); st.vel.y = 10; st.ground = false } }
-      else if (a.t <= 0 && dist < 22) { a.tele = 0.7; a.t = 4.2 }
+    if (v === 0) { // stomper: raises its fists and marks a long red lane toward you that it will smash when the mark is full; leave the lane or be crushed
+      if (a.tele > 0) { moving = false; e.fireT = 0.9
+        if ((a.tele -= dt) <= 0) {
+          sfx.play("bigboom", e.pos, 1); st.shake = Math.max(st.shake, live ? 0.9 : 0)
+          for (let li = 0; li < a.n; li++) { const ang = a["ang" + li]
+            for (let k = 0; k < 14; k++) fx.spark(new V(e.pos.x + Math.sin(ang) * (2 + k * 1.8), e.pos.y + 0.5, e.pos.z + Math.cos(ang) * (2 + k * 1.8)), 4, new V(0, 1, 0), DUST)
+            if (live && inZone(e, ang, 26, 8)) { hurtPlayer(e, 36, "crushed by a stomper"); st.vel.x += Math.sin(ang) * 6; st.vel.z += Math.cos(ang) * 6; st.vel.y = 11; st.ground = false }
+          }
+          if (live && dist < 6.5) { hurtPlayer(e, 20, "crushed by a stomper"); st.vel.y = 9; st.ground = false } } }
+      else if (a.t <= 0 && dist < 32) { // aim at where you are heading, lock the lanes, and warn
+        a.tele = enr ? 0.9 : 1.15; a.t = 3.2
+        const base = Math.atan2(st.pos.x + st.vel.x * 0.35 - e.pos.x, st.pos.z + st.vel.z * 0.35 - e.pos.z), lanes = enr ? [-0.6, 0, 0.6] : [0]
+        a.n = lanes.length; lanes.forEach((o, li) => { a["ang" + li] = base + o; spawnZone(e, base + o, 26, 8, a.tele) })
+        sfx.play("surge", e.pos, 0.7) }
     } else if (v === 1) { // sniper: holds a firing range, tracks you with a laser, locks it, then fires along it; between shots it lobs fast lead-aimed bolts
       const los = dist < 80 && clearShot(e, e.dim), aim = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
       moving = !los || dist > 40 || dist < 24; if (los && dist < 24) { mx = -ux; mz = -uz } else if (!los) spd = 1.4
