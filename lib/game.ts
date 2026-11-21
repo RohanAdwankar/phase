@@ -57,7 +57,7 @@ const rayCollider = (o: THREE.Vector3, d: THREE.Vector3, b: Box) => {
   return crossings % 2 === 1 ? 0 : best
 }
 
-export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void) {
+export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElement, signal: AbortSignal, status: (frac: number, label: string) => void, practice = false) {
   const idle = { stop: () => {}, begin: () => {} }
   if (signal.aborted) return idle
   const ctx = hud.getContext("2d")!
@@ -427,7 +427,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // ranged shots miss more when you are fast and high: up to half of them at full speed well off the ground
   const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z, nd())) / 10))
   const hurtPlayer = (e: Enemy, dmg: number, why: string) => {
-    if (st.inv > 0 || st.deadT > 0) return
+    if (practice || st.inv > 0 || st.deadT > 0) return // practice mode cannot hurt you
     dmg *= 1 + 0.4 * st.level
     st.cause = why; sfx.play("hurt"); st.hp -= dmg; st.hurt = 0.35; hurts.push({ x: e.pos.x - st.pos.x, z: e.pos.z - st.pos.z, t: 1 })
   }
@@ -461,7 +461,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
         e.fireT -= dt
       }
-      const spd = (e.kind === "guardian" ? e.speed * gsp : (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level)
+      const spd = (e.kind === "guardian" ? e.speed * gsp : (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level) * (practice ? 0.25 : 1) // practice enemies crawl
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       if (e.kind !== "boss") rocksNear(e) // the warden glides through rock
       const gy = terrainY(e.pos.x, e.pos.z, e.dim)
@@ -754,6 +754,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
     unstick(bx, st.slide ? 1 : 1.8)
+    if (practice) st.hp = st.maxHp
     // each dimension has its own ground: phasing into a higher landscape lifts you onto it instead of burying you
     { const gh = terrainY(st.pos.x, st.pos.z, nd()); if (st.pos.y < gh) { st.pos.y = gh; if (st.vel.y < 0) st.vel.y = 0 } }
 
@@ -851,8 +852,29 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
 
   const keyT: Record<string, number> = {}
+  // practice mode: the real game with crawling enemies that cannot hurt you, and a short list of things to try
+  let pr = 0, prBase = { x: 0, z: 0, nd: 0, n: 0, kills: 0 }, prT = 0
+  const PRACTICE: [string, () => boolean, (() => void)?][] = [
+    ["wasd to move, mouse to look", () => Math.hypot(st.pos.x - prBase.x, st.pos.z - prBase.z) > 12],
+    ["space to jump, space again in the air to double jump", () => st.jumps >= 1 && !st.ground],
+    ["land and jump again right away: bunny hops build speed", () => st.hops >= 2],
+    ["hold c while running to slide", () => st.slide],
+    ["run into a boulder to wall run, space leaps off", () => st.wallT > 0],
+    ["enemies are coming. press e or q, or scroll, to phase into another dimension and slip past them", () => prBase.n >= 1,
+      () => { summon("swarmer", 6, 18, 26, nd(), 0, Math.PI * 2); summon("walker", 3, 24, 32, nd(), 0, Math.PI * 2) }],
+    ["scroll a little: you peek into the next dimension and see what is there", () => Math.abs(d - Math.round(d)) > 0.25],
+    ["keep phasing the same way: the five dimensions loop round", () => prBase.n >= 5],
+    ["click to shoot. r reloads", () => st.kills > prBase.kills, () => { summon("walker", 2, 14, 18, nd(), 0, 1) }],
+    ["press 3, hold the mouse to charge the sword and release looking up: you surge where you look", () => st.surge > 0],
+    ["that is everything. keep practicing, or press escape and go to the real game", () => prT > 8],
+  ]
+  const practiceTick = (dt: number) => {
+    if (!practice || pr >= PRACTICE.length) return
+    prT += dt; if (nd() !== prBase.nd) { prBase.nd = nd(); prBase.n++ }
+    if (PRACTICE[pr][1]()) { pr++; prT = 0; prBase = { x: st.pos.x, z: st.pos.z, nd: nd(), n: 0, kills: st.kills }; sfx.play("ready"); if (pr < PRACTICE.length) PRACTICE[pr][2]?.() }
+  }
   const frame = (w: number, h: number, dt: number) => {
-    time += dt; uTime.value = time
+    time += dt; uTime.value = time; practiceTick(dt)
     const p = st.pos, speed = Math.hypot(st.vel.x, st.vel.z), right = new V(Math.cos(st.yaw), 0, -Math.sin(st.yaw))
     st.roll += ((st.wallT > 0 ? -0.14 * st.wn.dot(right) : 0) - st.roll) * Math.min(1, 10 * dt)
     st.kick = Math.max(0, st.kick - dt * 14); st.hit = Math.max(0, st.hit - dt); st.hurt = Math.max(0, st.hurt - dt); st.flash = Math.max(0, st.flash - dt)
@@ -1006,12 +1028,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + Math.cos(ang(wrap(d))) * rr, cy + Math.sin(ang(wrap(d))) * rr, 6, 0, Math.PI * 2); ctx.fill()
     ctx.textAlign = "center"; ctx.font = "22px ui-monospace, monospace"; ctx.fillText(`${nd() + 1}`, cx, cy + 8); ctx.textAlign = "left"
     }
-    if (dbg.showKeys) {
+    if (dbg.showKeys || practice) {
       const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["", "", 20], ["Wheel", "scroll", 84]]
       let x = w / 2 - caps.reduce((a, c) => a + c[2] + 6, 0) / 2, y = h - 72; ctx.textAlign = "center"; ctx.font = "17px ui-monospace, monospace"
       for (const [c, label, cw] of caps) { if (c) { const on = c === "Wheel" ? now - lastWheel < 260 : lit(c); ctx.fillStyle = on ? "#fff" : "rgba(0,0,0,0.45)"; ctx.fillRect(x, y, cw, 44); ctx.fillStyle = on ? "#111" : "rgba(255,255,255,0.85)"; ctx.fillText(label, x + cw / 2, y + 28) } x += cw + 6 }
       ctx.textAlign = "left"
     }
+    if (practice && pr < PRACTICE.length) { ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "13px ui-monospace, monospace"; ctx.fillText(`practice ${pr + 1}/${PRACTICE.length}`, w / 2, h - 96); ctx.fillStyle = "#fff"; ctx.font = "700 22px ui-sans-serif, system-ui, sans-serif"; ctx.shadowBlur = 8; ctx.fillText(PRACTICE[pr][0], w / 2, h - 124); ctx.shadowBlur = 3; ctx.textAlign = "left" }
   }
 
   let raf = 0, last = performance.now(), acc = 0

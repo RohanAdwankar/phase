@@ -9,10 +9,10 @@ type Api = { stop: () => void; begin: () => void }
 
 export default function Page() {
   const game = useRef<HTMLCanvasElement>(null), hud = useRef<HTMLCanvasElement>(null), api = useRef<Api | null>(null)
-  const [load, setLoad] = useState({ frac: 0, label: "starting" }), [ready, setReady] = useState(false), [menu, setMenu] = useState(true), [played, setPlayed] = useState(false)
+  const [load, setLoad] = useState({ frac: 0, label: "starting" }), [ready, setReady] = useState(false), [menu, setMenu] = useState(true), [played, setPlayed] = useState(false), [isPractice, setPractice] = useState(false)
   useEffect(() => {
-    const abort = new AbortController(), demo = new URLSearchParams(location.search).has("demo")
-    const stop = import("@/lib/game").then(m => m.startGame(game.current!, hud.current!, abort.signal, (frac, label) => setLoad({ frac, label }))).then(a => { api.current = a; setReady(true); if (demo) { setMenu(false); a.begin() } return a })
+    const abort = new AbortController(), q = new URLSearchParams(location.search), demo = q.has("demo"), practice = q.has("practice"); setPractice(practice)
+    const stop = import("@/lib/game").then(m => m.startGame(game.current!, hud.current!, abort.signal, (frac, label) => setLoad({ frac, label }), practice)).then(a => { api.current = a; setReady(true); if (demo) { setMenu(false); a.begin() } return a })
     const lock = () => { if (!document.pointerLockElement && !demo) setMenu(true) }
     document.addEventListener("pointerlockchange", lock)
     return () => { abort.abort(); document.removeEventListener("pointerlockchange", lock); void stop.then(a => a.stop()) }
@@ -32,8 +32,8 @@ export default function Page() {
       {ready && menu && (
         <div style={{ ...screen, background: "rgba(8,12,16,0.72)" }}>
           <div style={{ fontSize: 96, fontWeight: 800, letterSpacing: -3 }}>phase</div>
-          <button style={{ ...link, marginTop: 24 }} onClick={start}>{played ? "resume" : "play"}</button>
-          {!played && <a style={{ ...link, textDecoration: "none" }} href="tutorial.html">tutorial</a>}
+          <button style={{ ...link, marginTop: 24 }} onClick={start}>{played ? "resume" : isPractice ? "practice" : "play"}</button>
+          {!played && <a style={{ ...link, textDecoration: "none" }} href={isPractice ? "./" : "?practice"}>{isPractice ? "real game" : "tutorial"}</a>}
           <div style={{ marginTop: 28, fontSize: 14, opacity: 0.6, textAlign: "center", lineHeight: 1.7 }}>wasd move, space jump, c slide, mouse aim, click fire<br />e and q or the scroll wheel phase between five dimensions, they loop</div>
         </div>
       )}
