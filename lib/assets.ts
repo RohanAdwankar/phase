@@ -1,8 +1,7 @@
 import * as THREE from "three"
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"
-import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js"
 
-const A = "/assets"
+const A = (process.env.NEXT_PUBLIC_BASE ?? "") + "/assets"
 export type Part = { geo: THREE.BufferGeometry; mat: THREE.Material }
 export type Model = { parts: Part[]; box: THREE.Box3 }
 export type PBR = { map: THREE.Texture; normalMap: THREE.Texture; arm: THREE.Texture }
@@ -32,18 +31,4 @@ export const loadModel = async (id: string): Promise<Model> => {
   for (const p of parts) p.geo.applyMatrix4(shift)
   box.applyMatrix4(shift)
   return { parts, box }
-}
-
-export const loadSky = async () => {
-  const tex = await new HDRLoader().loadAsync(`${A}/kloofendal_48d_partly_cloudy_puresky.hdr`)
-  tex.mapping = THREE.EquirectangularReflectionMapping
-  // find the sun as the brightest texel
-  const d = tex.image.data as Uint16Array | Float32Array, { width, height } = tex.image
-  const half = d instanceof Uint16Array, f = (v: number) => (half ? THREE.DataUtils.fromHalfFloat(v) : v)
-  let best = 0, bi = 0
-  for (let i = 0; i < width * height; i++) { const l = f(d[i * 4]) + f(d[i * 4 + 1]) + f(d[i * 4 + 2]); if (l > best) { best = l; bi = i } }
-  const u = (bi % width) / width, v = 1 - Math.floor(bi / width) / height
-  const phi = (u - 0.5) * Math.PI * 2, theta = (v - 0.5) * Math.PI
-  const sun = new THREE.Vector3(Math.cos(theta) * Math.cos(phi), Math.sin(theta), Math.cos(theta) * Math.sin(phi))
-  return { tex, sun }
 }
