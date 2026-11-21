@@ -92,7 +92,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -221,7 +221,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
       if ((hit.hp -= dm()) <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
-        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++
+        fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++; onKill(hit)
         for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
       }
     } else if (tMin < 150) { sfx.play("thud", end, 0.6); fx.spark(end, 6, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
@@ -266,11 +266,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   // a dying walker blows up: a big burst that hurts neighbours, and any TNT it was standing on goes off too
   const dying = new Set<Enemy>()
-  const killWalker = (e: Enemy) => {
+  const killWalker = (e: Enemy, byPlayer = true) => {
     if (dying.has(e)) return
     dying.add(e)
     sfx.play("die", e.pos)
-    e.mesh.removeFromParent(); st.kills++
+    e.mesh.removeFromParent(); if (byPlayer) { st.kills++; onKill(e) }
     for (const ch of chunks.values()) ch.enemies = ch.enemies.filter(x => x !== e)
     const c = e.pos.clone().setY(e.pos.y + 1.5)
     for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
@@ -306,6 +306,23 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
 
   const dm = () => 1 + 0.2 * st.boon.dmg, cdm = () => Math.pow(0.85, st.boon.cd)
+  // kills heal by enemy size, and sometimes drop a powerup orb that stacks for the rest of the run
+  const HEAL: Record<Kind, number> = { swarmer: 0.1, flyer: 0.1, walker: 0.2, brute: 0.5, boss: 1 }, DROP: Record<Kind, number> = { swarmer: 0.04, flyer: 0.1, walker: 0.14, brute: 0.4, boss: 0 }
+  const orbs: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; life: number }[] = [], orbGeo = new THREE.OctahedronGeometry(0.3), orbMat = new THREE.MeshBasicMaterial({ color: 0xffd36a })
+  const POWERUPS: [string, () => void][] = [["damage +10%", () => { st.boon.dmg += 0.5 }], ["move speed +4%", () => { st.boon.spd += 0.5 }], ["cooldowns -8%", () => { st.boon.cd += 0.5 }], ["max health +10", () => { st.maxHp += 10 }]]
+  const onKill = (e: Enemy) => {
+    st.hp = Math.min(st.maxHp, st.hp + HEAL[e.kind] * st.maxHp)
+    if (Math.random() < DROP[e.kind]) { const mesh = new THREE.Mesh(orbGeo, orbMat); mesh.position.copy(e.pos).setY(e.pos.y + 1); scene.add(mesh); orbs.push({ mesh, pos: mesh.position, dim: e.dim, life: 45 }) }
+  }
+  const orbTick = (dt: number) => {
+    for (let i = orbs.length - 1; i >= 0; i--) {
+      const o = orbs[i], here = o.dim === nd(); o.life -= dt; o.mesh.visible = here; o.mesh.rotation.y += dt * 2.5
+      const dx = st.pos.x - o.pos.x, dy = st.pos.y + 1 - o.pos.y, dz = st.pos.z - o.pos.z, dist = Math.hypot(dx, dy, dz)
+      if (here && dist < 9) o.pos.addScaledVector(new V(dx, dy, dz), Math.min(1, 7 * dt / Math.max(dist, 0.1)))
+      if (here && dist < 1.6 && st.deadT <= 0) { const [text, apply] = POWERUPS[Math.floor(Math.random() * POWERUPS.length)]; apply(); st.items++; banner(text, 1.6); sfx.play("ready"); fx.spark(o.pos, 20, new V(0, 1, 0), new THREE.Color(0xffd36a)); o.life = 0 }
+      if (o.life <= 0) { o.mesh.removeFromParent(); orbs.splice(i, 1) }
+    }
+  }
   // each hit remembers where it came from in the world, so the flash can point at the shooter as the player turns
   const hurts: { x: number; z: number; t: number }[] = []
   // explosives: pistol alt-fire (G) throws a grenade, bow alt-fire (G) plants TNT. TNT in the same spot stacks and the blast compounds.
@@ -368,7 +385,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     bombs.push({ kind: "tnt", mesh: m, pos: p.clone(), vel: new V(), dim: nd(), fuse: Infinity, n: 1 })
   }
   const bombStep = (dt: number) => {
-    st.gCd -= dt; st.tCd -= dt
+    st.gCd -= dt; st.tCd -= dt; orbTick(dt)
     if (st.tnt < TNT_MAX && (st.tntT += dt) >= TNT_RECHARGE * cdm()) { st.tnt++; st.tntT = 0 }
     for (let i = bombs.length - 1; i >= 0; i--) {
       const b = bombs[i]; b.fuse -= dt
@@ -436,7 +453,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" ? Math.max(0, e.fireT / 0.9) : 0)
       if (e.kind === "boss") bossTick(e, dt, dist, live)
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
-      if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e); continue }
+      if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
       if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
         e.fireT = e.kind === "flyer" ? 0.55 + Math.random() * 0.5 : 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
@@ -870,7 +887,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       ctx.textAlign = "left"; ctx.shadowBlur = 3
     }
     ctx.font = "14px ui-monospace, monospace"
-    if (!dbg.hideHud && !dbg.hideStats) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
+    if (!dbg.hideHud && !dbg.hideStats) ctx.fillText(`level ${st.level}   ${Math.round(Math.hypot(p.x, p.z))} m from start   ${st.kills} kills   ${st.items} powerups   ${st.deaths} deaths   ${Math.round(speed * 3.6)} km/h`, 20, 30)
     if (!dbg.hideHud || dbg.hideStats) { ctx.fillStyle = "rgba(255,255,255,0.25)"; ctx.fillRect(20, h - 30, 160, 4); ctx.fillStyle = "#e8c36a"; ctx.fillRect(20, h - 30, Math.max(0, st.hp) / st.maxHp * 160, 4) }
     // the dimensions are a ring: five dots, and the marker travels round it (and wraps) as you phase
     const cx = w - 90, cy = h / 2, rr = 52, ang = (i: number) => (i / N) * Math.PI * 2 - Math.PI / 2
