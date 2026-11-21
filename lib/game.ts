@@ -10,7 +10,7 @@ import { makeSword } from "./sword"
 import { N, terrainY, track } from "./materials"
 import { gradient, PALETTE } from "./toon"
 import { createSfx, makeSfx } from "./audio"
-import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, LOAD_STEPS, chunkKey, clearRock, ellBox, hash, diff, Box, Chunk, CH } from "./world"
+import { buildChunk, buildDetail, disposeChunk, disposeDetail, loadWorld, LOAD_STEPS, chunkKey, clearRock, ellBox, hash, Box, Chunk, CH } from "./world"
 import { BOULDERS } from "./rocks"
 import { registry, uTime, uPlayer } from "./materials"
 
@@ -410,12 +410,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const dodge = () => 1 - Math.min(0.5, 0.2 * Math.min(1, st.vel.length() / 16) + 0.3 * Math.min(1, Math.max(0, st.pos.y - terrainY(st.pos.x, st.pos.z)) / 10))
   const hurtPlayer = (e: Enemy, dmg: number, why: string) => {
     if (st.inv > 0 || st.deadT > 0) return
+    dmg *= 1 + 0.4 * st.level
     st.cause = why; sfx.play("hurt"); st.hp -= dmg; st.hurt = 0.35; hurts.push({ x: e.pos.x - st.pos.x, z: e.pos.z - st.pos.z, t: 1 })
   }
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
       if (gap(e.dim) > 1.1 && e.kind !== "boss") continue
+      // enemies toughen with every beacon completed: hp is raised the first time they act after a level up
+      if ((e.lv ?? 0) < st.level) { const k = (1 + 0.5 * st.level) / (1 + 0.5 * (e.lv ?? 0)); e.hp *= k; if (e.maxHp) e.maxHp *= k; e.lv = st.level }
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
       e.mesh.rotation.y = Math.atan2(-dx, -dz)
       let moving = false, mx = 0, mz = 0
@@ -438,7 +441,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (dist < reach && e.t1 <= 0.0 && !(e.fireT > 0)) { e.fireT = 0.9; e.t1 = 1.8; sfx.play("boom", e.pos, 0.5); fx.spark(new V(e.pos.x - dx / dist * 3, e.pos.y + 0.4, e.pos.z - dz / dist * 3).setY(e.pos.y + 0.3), 30, new V(0, 1, 0), DUST) ; if (live && dist < reach + 1) { hurtPlayer(e, e.kind === "boss" ? 32 : 24, e.kind === "boss" ? "crushed by the warden" : "crushed by a brute"); st.vel.x += dx / dist * 12; st.vel.z += dz / dist * 12; st.vel.y = 7; st.ground = false } }
         e.fireT -= dt
       }
-      const spd = (e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed
+      const spd = ((e.kind === "brute" || e.kind === "boss") && e.t2 > 0 ? e.speed * 3.3 : e.speed) * (1 + 0.08 * st.level)
       if (moving) { e.pos.x += mx * spd * dt; e.pos.z += mz * spd * dt }
       rocksNear(e)
       const gy = terrainY(e.pos.x, e.pos.z)
@@ -448,7 +451,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.kind === "boss") bossTick(e, dt, dist, live)
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
-      if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt) <= 0 && clearShot(e)) {
+      if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt * (1 + 0.12 * st.level)) <= 0 && clearShot(e)) {
         e.fireT = e.kind === "flyer" ? 0.55 + Math.random() * 0.5 : 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
@@ -573,7 +576,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const bossDown = (e: Enemy) => {
     for (const sh of shrines.values()) if (sh.boss === e) { sh.state = "done"; sh.boss = null }
-    st.level++; diff.hp = 1 + 0.25 * st.level
+    st.level++
     const k = (st.level - 1) % 4, text = ["max health +20", "damage +20%", "move speed +8%", "cooldowns -15%"][k]
     if (k === 0) st.maxHp += 20; else if (k === 1) st.boon.dmg++; else if (k === 2) st.boon.spd++; else st.boon.cd++
     st.hp = st.maxHp; banner(`warden defeated. level ${st.level}. ${text}`, 4.5); sfx.play("ready")
@@ -855,7 +858,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         // only the next beacon matters: an arrow to it, tinted by its dimension, with that dimension's number and the distance
         const s2 = st.focus, py = s2.pylons[s2.order[Math.min(s2.next, N - 1)]], rel2 = Math.atan2(py.x - p.x, -(py.z - p.z)) - (-st.yaw), ang2 = Math.atan2(Math.sin(rel2), Math.cos(rel2)), col = hexs(GLOW[py.dim])
         ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang2); ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
-        ctx.font = "14px ui-monospace, monospace"; const lbl = `dimension ${py.dim + 1}   ${Math.round(Math.hypot(py.x - p.x, py.z - p.z))} m`; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.strokeText(lbl, w / 2, 92); ctx.fillStyle = col; ctx.fillText(lbl, w / 2, 92)
+        ctx.font = "14px ui-monospace, monospace"; const lbl = `${Math.round(Math.hypot(py.x - p.x, py.z - p.z))} m`; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)"; ctx.strokeText(lbl, w / 2, 92); ctx.fillStyle = col; ctx.fillText(lbl, w / 2, 92)
       } else if (st.target) {
         const dx = st.target.cx - p.x, dz = st.target.cz - p.z, rel = Math.atan2(dx, -dz) - (-st.yaw) , ang = Math.atan2(Math.sin(rel), Math.cos(rel))
         ctx.save(); ctx.translate(w / 2, 62); ctx.rotate(ang); ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(9, 8); ctx.lineTo(0, 3); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.restore()
