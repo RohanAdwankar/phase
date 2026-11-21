@@ -725,7 +725,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     } else { // blinker: hops around you and throws a ring of slow orbs
       moving = false
       if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
-        fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; sfx.play("phase", e.pos, 1)
+        fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; if (e.home) { const hx = e.pos.x - e.home.x, hz = e.pos.z - e.home.z, hd = Math.hypot(hx, hz); if (hd > 42) { e.pos.x = e.home.x + hx / hd * 42; e.pos.z = e.home.z + hz / hd * 42 } }; sfx.play("phase", e.pos, 1)
         const org = new V(e.pos.x, terrainY(e.pos.x, e.pos.z, e.dim) + 3, e.pos.z)
         const nOrb = enr ? 14 : 8; for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2 + (enr ? a.t : 0); spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 10) } }
     }
@@ -788,7 +788,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     st.focus = best && bd < 260 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
     let be: Enemy | null = null
-    for (const sh of shrines.values()) { if (sh.boss && sh.state === "boss") be = sh.boss; if (!be) for (const py of sh.pylons) if (py.guard && py.guard.hp > 0 && py.guard.dim === nd() && Math.hypot(p.x - py.x, p.z - py.z) < 60) be = py.guard }
+    for (const sh of shrines.values()) { if (sh.boss && sh.state === "boss") be = sh.boss; if (!be) for (const py of sh.pylons) if (py.guard && py.guard.hp > 0 && py.guard.dim === nd() && Math.hypot(p.x - py.guard.pos.x, p.z - py.guard.pos.z) < 80) be = py.guard }
     st.bossE = be && be.mesh.parent ? be : null
     st.bannerT = Math.max(0, st.bannerT - dt)
   }
