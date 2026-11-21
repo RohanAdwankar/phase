@@ -1078,6 +1078,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   let raf = 0, last = performance.now(), acc = 0
   let calm = 0, lastNd = 2
   let started = false, manual = false, scale = 1, ema = 1 / 60, frames = 0, lastWheel = 0
+  let wasLive = false
   const tick = (dt: number) => {
     acc += dt
     const dpr = Math.min(2, devicePixelRatio), w = canvas.clientWidth, h = canvas.clientHeight, rp = dpr * scale
@@ -1090,11 +1091,14 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     // a short flick of the wheel only peeks at the next dimension and springs back; a longer one commits
     if (!manual && performance.now() - lastWheel > 450) target = Math.round(target)
     // the world waits on the menu and whenever the pointer is released
-    if (manual || (started && document.pointerLockElement)) {
+    const live = manual || (started && !!document.pointerLockElement)
+    if (live) {
       while (acc > DT) { acc -= DT; step() }
       enemyTick(Math.min(dt, 0.05)); separate(); bombStep(Math.min(dt, 0.05)); shrineTick(Math.min(dt, 0.05)); stream()
-    } else acc = 0
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, dt)
+    } else { acc = 0; if (wasLive) sfx.draw.stop() }
+    wasLive = live
+    // paused frames still draw, but with no time passing: no footsteps, bob, sway or sound effects keep running under the menu
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); frame(w, h, live ? dt : 0)
   }
   const loop = (now: number) => {
     raf = requestAnimationFrame(loop)
