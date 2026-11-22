@@ -727,9 +727,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // red ground zones: a locked, directional area that will be hit when the timer ends, so you have to leave it
   const zones: { mesh: THREE.Mesh; t: number; T: number; dim: number }[] = []
   const zoneGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
-  const spawnZone = (e: Enemy, ang: number, len: number, wd: number, T: number) => {
+  const spawnZone = (e: Enemy, ang: number, len: number, wd: number, T: number, at: { x: number; z: number } = e.pos) => {
     const mat = new THREE.MeshBasicMaterial({ color: 0xff1208, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false, side: THREE.DoubleSide }), mesh = new THREE.Mesh(zoneGeo, mat)
-    mesh.position.set(e.pos.x + Math.sin(ang) * len / 2, terrainY(e.pos.x + Math.sin(ang) * len / 2, e.pos.z + Math.cos(ang) * len / 2, e.dim) + 0.4, e.pos.z + Math.cos(ang) * len / 2)
+    mesh.position.set(at.x + Math.sin(ang) * len / 2, terrainY(at.x + Math.sin(ang) * len / 2, at.z + Math.cos(ang) * len / 2, e.dim) + 0.4, at.z + Math.cos(ang) * len / 2)
     mesh.scale.set(wd, 1, len); mesh.rotation.y = ang; mesh.renderOrder = 5; scene.add(mesh); zones.push({ mesh, t: T, T, dim: e.dim })
   }
   const zoneTick = (dt: number) => {
@@ -794,8 +794,16 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (a.t <= 0) { a.t = 6; summon("swarmer", 4 + Math.min(4, st.level) + (enr ? 4 : 0), 4, 8, e.dim, 0, Math.PI * 2, e.pos); if (enr) summon("flyer", 2, 6, 10, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }
       let kids = 0; for (const c of nearChunks(2)) for (const o of c.enemies) if (o.kind === "swarmer" && o.dim === e.dim && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 35) kids++
       if (kids) e.hp = Math.min(e.maxHp ?? e.hp, e.hp + 7 * dt)
-    } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed
-      if (a.stun > 0) { a.stun -= dt; moving = false }
+    } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed; if you perch out of its reach it leaps onto your perch
+      a.lp = (a.lp ?? 3) - dt
+      if (a.leap > 0) { moving = false
+        if ((a.leap -= dt) <= 0) {
+          sfx.play("bigboom", e.pos, 1); st.shake = Math.max(st.shake, live ? 0.9 : 0); e.pos.x = a.lx; e.pos.z = a.lz
+          for (let k = 0; k < 24; k++) { const an = (k / 24) * Math.PI * 2; fx.spark(new V(a.lx + Math.cos(an) * 5, st.pos.y, a.lz + Math.sin(an) * 5), 3, new V(0, 1, 0), DUST) }
+          if (live && Math.abs(st.pos.x - a.lx) < 6.6 && Math.abs(st.pos.z - a.lz) < 6.6 && st.pos.y - a.ly < 4) { hurtPlayer(e, 40, "flattened by a charger"); st.vel.x += (st.pos.x - a.lx) * 1.5; st.vel.z += (st.pos.z - a.lz) * 1.5; st.vel.y = 11; st.ground = false } } }
+      else if (live && a.lp <= 0 && st.pos.y - e.pos.y > 2.5 && dist < 90 && !(a.chg > 0)) { // perched: mark a square under you, then land on it
+        a.lp = enr ? 3 : 4.5; a.leap = enr ? 0.8 : 1.1; a.lx = st.pos.x; a.lz = st.pos.z; a.ly = st.pos.y; spawnZone(e, 0, 12, 12, a.leap, { x: a.lx, z: a.lz - 6 }); sfx.play("surge", e.pos, 0.7) }
+      else if (a.stun > 0) { a.stun -= dt; moving = false }
       else if (a.chg > 0) { a.chg -= dt; mx = a.cx; mz = a.cz; spd = 6.5; moving = true
         if (live && dist < 4.5 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 1e4, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false } // a direct hit is lethal
         if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.45; a.hit = 0; const dd = Math.max(0.01, Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); a.cx = (st.pos.x - e.pos.x) / dd; a.cz = (st.pos.z - e.pos.z) / dd; spawnZone(e, Math.atan2(a.cx, a.cz), 30, 5.5, a.tele) } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
