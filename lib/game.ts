@@ -224,6 +224,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const t = rayBox(o, dir, ...hitBox(e))
       if (t < tMin) { tMin = t; hit = e }
     }
+    const orb = rayOrb(o, dir, tMin, nd()); if (orb) { deflect(orb.o); tMin = orb.t; hit = null }
     const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V()).applyMatrix4(cam.matrixWorld)
     if (hit) {
       st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); const head = headshot(hit, end.y); fx.spark(end, head ? 24 : 10, dir.clone().negate(), head ? WHITE : ORANGE); fx.smoke(end, 1, DUST, 0.5)
@@ -305,6 +306,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (proj < 0 || proj > Math.min(tMin, len) + rad) continue
       if (cx * cx + cy * cy + cz * cz - proj * proj < rad * rad && proj - rad < tMin) { tMin = Math.max(0, proj - rad); tntHit = bm }
     }
+    { const orb = rayOrb(p, dir, Math.min(tMin, len), a.dim); if (orb) deflect(orb.o) }
     const end = p.clone().addScaledVector(dir, Math.min(tMin, len))
     const gy = terrainY(end.x, end.z, a.dim), onTerrain = end.y < gy
     if (tMin < len || onTerrain) {
@@ -642,16 +644,31 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
   }
   // projectiles that fly in the dimension of whoever fired them
-  const shots: { mesh: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; dim: number; src: Enemy }[] = []
+  const shots: { mesh: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; dim: number; src: Enemy; ring?: boolean; back?: boolean }[] = []
   const shotGeo = new THREE.SphereGeometry(0.45, 8, 6)
-  const spawnShot = (e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, speed: number, dmg: number) => {
+  const spawnShot = (e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, speed: number, dmg: number, ring = false) => {
     const mesh = new THREE.Mesh(shotGeo, new THREE.MeshBasicMaterial({ color: GLOWC[e.dim].clone().multiplyScalar(2), toneMapped: false })); mesh.position.copy(from); scene.add(mesh)
-    shots.push({ mesh, pos: mesh.position, vel: dir.clone().normalize().multiplyScalar(speed), life: 3.2, dmg, dim: e.dim, src: e })
+    shots.push({ mesh, pos: mesh.position, vel: dir.clone().normalize().multiplyScalar(speed), life: 3.2, dmg, dim: e.dim, src: e, ring })
+  }
+  // shooting an orb sends it back at whoever fired it
+  const deflect = (o: (typeof shots)[number]) => {
+    o.back = true; o.life = 3; o.vel.copy(o.src.pos).setY(o.src.pos.y + o.src.h * 0.6).sub(o.pos).normalize().multiplyScalar(34); (o.mesh.material as THREE.MeshBasicMaterial).color.set(0xffffff).multiplyScalar(2); sfx.play("clink", o.pos, 0.8)
+  }
+  // nearest live orb a ray passes through within maxT
+  const rayOrb = (p: THREE.Vector3, dir: THREE.Vector3, maxT: number, dim: number) => {
+    let best: (typeof shots)[number] | null = null, bt = maxT
+    for (const o of shots) if (!o.back && o.dim === dim) { const c = o.pos.clone().sub(p), t = c.dot(dir); if (t > 0 && t < bt && c.addScaledVector(dir, -t).length() < 0.9) { bt = t; best = o } }
+    return best && { o: best, t: bt }
   }
   const shotTick = (dt: number) => {
     for (let i = shots.length - 1; i >= 0; i--) {
       const o = shots[i]; o.pos.addScaledVector(o.vel, dt); o.life -= dt; o.mesh.visible = o.dim === nd()
-      if (o.dim === nd() && Math.hypot(st.pos.x - o.pos.x, st.pos.y + 1 - o.pos.y, st.pos.z - o.pos.z) < 1.5) { hurtPlayer(o.src, o.dmg, "hit by a guardian's orb"); o.life = 0 }
+      if (o.back) { const sp = o.src.pos; if (Math.hypot(sp.x - o.pos.x, sp.z - o.pos.z) < o.src.hr + 0.6 && o.pos.y > sp.y - 0.5 && o.pos.y < sp.y + o.src.h + 1) { o.src.hp -= 30 * dm(); o.src.hitT = 0.14; sfx.play("hit", o.pos); fx.spark(o.pos, 14, new V(0, 1, 0), WHITE); if (o.src.hp <= 0) killWalker(o.src); o.life = 0 } }
+      else if (o.dim === nd()) {
+        // a ring orb is a band across the body: standing is hit, a slide ducks a high one, a jump clears a low one
+        const hit = o.ring ? Math.hypot(st.pos.x - o.pos.x, st.pos.z - o.pos.z) < 1.1 && o.pos.y + 0.3 > st.pos.y && o.pos.y - 0.3 < st.pos.y + (st.slide ? 0.9 : 1.8) : Math.hypot(st.pos.x - o.pos.x, st.pos.y + 1 - o.pos.y, st.pos.z - o.pos.z) < 1.5
+        if (hit) { hurtPlayer(o.src, o.dmg, "hit by a guardian's orb"); o.life = 0 }
+      }
       if (o.life <= 0) { o.mesh.removeFromParent(); (o.mesh.material as THREE.Material).dispose(); shots.splice(i, 1) }
     }
   }
@@ -733,12 +750,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; sfx.play("surge", e.pos, 1) } }
       else if (a.t <= 0 && dist < 45 && dist > 8) { // lock the lane, mark it red, then run it down
         a.tele = enr ? 0.7 : 0.95; a.t = 5; a.cx = ux; a.cz = uz; spawnZone(e, Math.atan2(ux, uz), 30, 5.5, a.tele) }
-    } else { // blinker: hops around you and throws a ring of slow orbs
+    } else { // blinker: hops around you and throws a solid ring of orbs, alternately low (jump it) and high (slide under it); shoot an orb to send it back at the blinker
       moving = false
       if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
         fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; if (e.home) { const hx = e.pos.x - e.home.x, hz = e.pos.z - e.home.z, hd = Math.hypot(hx, hz); if (hd > 42) { e.pos.x = e.home.x + hx / hd * 42; e.pos.z = e.home.z + hz / hd * 42 } }; sfx.play("phase", e.pos, 1)
-        const org = new V(e.pos.x, terrainY(e.pos.x, e.pos.z, e.dim) + 3, e.pos.z)
-        const nOrb = enr ? 14 : 8; for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2 + (enr ? a.t : 0); spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 18) }
+        a.hi = a.hi ? 0 : 1 // rings alternate: a low one to jump over, a high one to slide under
+        const org = new V(e.pos.x, terrainY(st.pos.x, st.pos.z, e.dim) + (a.hi ? 1.4 : 0.45), e.pos.z), nOrb = Math.round(Math.PI * 2 * Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z) / 2.4)
+        for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2; spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 18, true) }
         a.vol = 0.45 }
       // right after each blink it fires a fast volley aimed where you are heading
       if (a.vol > 0 && (a.vol -= dt) <= 0) { const org = new V(e.pos.x, e.pos.y + 3, e.pos.z), lead = dist / 30; for (let k = -1; k <= 1; k += enr ? 0.5 : 1) { const tgt = new V(st.pos.x + st.vel.x * lead, st.pos.y + 1.1, st.pos.z + st.vel.z * lead), d3 = tgt.sub(org).normalize(); d3.applyAxisAngle(new V(0, 1, 0), k * 0.16); spawnShot(e, org, d3, 30, 22) } sfx.play("zap", e.pos, 0.8) }
@@ -1175,7 +1193,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { shots, rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
