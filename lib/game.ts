@@ -429,6 +429,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === dim && rayCollider(from, dir, b) < len) return false
     return true
   }
+  // can something standing at x,z in dim see the player? only boulders block the line
+  const sees = (x: number, z: number, dim: number, h = 1.4) => {
+    const from = new V(x, terrainY(x, z, dim) + h, z), to = new V(st.pos.x, st.pos.y + 1.2, st.pos.z), dir = to.clone().sub(from), len = dir.length(); dir.normalize()
+    for (const ch of nearChunks(2)) for (const b of ch.boxes) if (b.dim === dim && rayCollider(from, dir, b) < len) return false
+    return true
+  }
   // walkers are solid against every boulder and wall of their own dimension, however they got moved
   const rocksNear = (e: Enemy) => { const bx: Box[] = []; for (const ch of nearChunks(3)) bx.push(...ch.boxes); clearRock(bx, e.dim, e.pos, e.r) }
   // ranged shots miss more when you are fast and high: up to half of them at full speed well off the ground
@@ -693,8 +699,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         a.n = lanes.length; lanes.forEach((o, li) => { a["ang" + li] = base + o; spawnZone(e, base + o, 26, 8, a.tele) })
         sfx.play("surge", e.pos, 0.7) }
     } else if (v === 1) { // sniper: holds a firing range, tracks you with a laser, locks it, then fires along it; between shots it lobs fast lead-aimed bolts
-      const los = dist < 80 && clearShot(e, e.dim), aim = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
+      const los = dist < 80 && sees(e.pos.x, e.pos.z, e.dim), aim = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
       moving = !los || dist > 40 || dist < 24; if (los && dist < 24) { mx = -ux; mz = -uz } else if (!los) spd = 1.4
+      // walled off (the player is on a peak, or behind rock) for too long: it phases to a spot that can see you
+      a.blind = los ? 0 : (a.blind ?? 0) + dt
+      if (a.blind > 2.5) { a.blind = 0; const a0 = Math.random() * Math.PI * 2; for (let k = 0; k < 16; k++) { const an = a0 + k * Math.PI / 8, rr = 26 + (k % 3) * 5, x = st.pos.x + Math.cos(an) * rr, z = st.pos.z + Math.sin(an) * rr; if (sees(x, z, e.dim)) { fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = x; e.pos.z = z; sfx.play("phase", e.pos, 1); break } } }
       if (a.tele > 0) { moving = false
         if (a.tele > 0.4) { a.lx = aim.x; a.ly = aim.y; a.lz = aim.z } // the laser follows you until the last moment
         a.beamT = (a.beamT ?? 0) - dt; if (a.beamT <= 0) { a.beamT = 0.07; const d3 = new V(a.lx, a.ly, a.lz).sub(from).normalize(); beam(from, from.clone().addScaledVector(d3, Math.min(90, dist + 6)), a.tele > 0.4 ? 0.025 : 0.06, 0.1) }
@@ -738,7 +747,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let best = { x: py.x + 9, z: py.z, c: -1e9 }
     for (let k = 0; k < 8; k++) { const an = (k / 8) * Math.PI * 2, x = py.x + Math.cos(an) * 10, z = py.z + Math.sin(an) * 10, c = clearance(py.dim, x, z); if (c > best.c) best = { x, z, c } }
     const pos = new V(best.x, terrainY(best.x, best.z, py.dim), best.z), e = makeEnemy("guardian", world.foe, py.dim, pos), ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) return
-    e.variant = py.dim; e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
+    e.variant = py.dim; if (py.dim === 1) { e.r *= 0.47; e.hr *= 0.47; e.h *= 0.47 } e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
     ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
   }
   const bossDown = (e: Enemy) => {

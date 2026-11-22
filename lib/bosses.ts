@@ -77,6 +77,6 @@ export const buildBoss = (kind: "boss" | "guardian", dim: number): BossBody => {
     turret.position.set(0, 4.2, -1.4); g.add(turret)
     update = (dt, _m, phase) => { core.position.y = 4.2 + Math.sin(phase * 0.18) * 0.5; core.rotation.y -= dt * 0.9; blades.forEach((b, i) => { b.position.y = core.position.y; b.rotation.y += dt * 1.8; b.rotation.z = Math.sin(phase * 0.2 + i) * 0.25 }) }
   }
-  g.scale.setScalar(kind === "boss" ? 1.6 : 1.4)
+  g.scale.setScalar(kind === "boss" ? 1.6 : dim === 1 ? 0.47 : 1.4)
   return { mesh: g, update, turret }
 }
