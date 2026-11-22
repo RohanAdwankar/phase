@@ -3,6 +3,9 @@ import { Fragment, useEffect, useRef, useState } from "react"
 
 const fill = { position: "absolute", inset: 0, width: "100vw", height: "100vh", display: "block" } as const
 const screen = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#fff", fontFamily: "ui-sans-serif, system-ui, sans-serif" } as const
+const KEYS: [string[], string][] = [[["w", "a", "s", "d"], "move"], [["space"], "jump, again in the air to double jump"], [["c"], "slide"], [["e", "q"], "phase to the next or previous dimension"], [["1", "2", "3"], "pistol, bow, sword"], [["g"], "grenade, or plant tnt with the bow"], [["r"], "reload"], [["esc"], "pause"]]
+const MOUSE: [string, string][] = [["click", "fire, hold to draw the bow or charge the sword"], ["scroll", "phase, a little peeks, a lot switches"], ["move", "aim"]]
+const cap = { background: "rgba(255,255,255,0.14)", padding: "3px 9px", marginRight: 5, fontFamily: "ui-monospace, monospace", fontSize: 14 } as const
 const link = { background: "none", border: 0, color: "#fff", font: "inherit", fontSize: 22, padding: "6px 0", cursor: "pointer" } as const
 
 type Api = { stop: () => void; begin: () => void; harder: () => void }
@@ -48,7 +51,10 @@ export default function Page() {
           <div style={{ fontSize: 96, fontWeight: 800, letterSpacing: -3 }}>phase</div>
           <button style={{ ...link, marginTop: 24 }} onClick={start}>{played ? "resume" : isPractice ? "practice" : "play"}</button>
           {!played && <a style={{ ...link, textDecoration: "none" }} href={isPractice ? "./" : "?practice"}>{isPractice ? "real game" : "tutorial"}</a>}
-          <div style={{ marginTop: 28, fontSize: 14, opacity: 0.6, textAlign: "center", lineHeight: 1.7 }}>wasd move, space jump, c slide, mouse aim, click fire<br />e and q or the scroll wheel phase between five dimensions, they loop</div>
+          <div style={{ marginTop: 32, display: "grid", gridTemplateColumns: "auto auto", gap: "9px 26px", fontSize: 14, alignItems: "center" }}>
+            {MOUSE.map(([k, v]) => <Fragment key={k}><span><span style={cap}>mouse {k}</span></span><span style={{ opacity: 0.7 }}>{v}</span></Fragment>)}
+            {KEYS.map(([ks, v]) => <Fragment key={v}><span>{ks.map(k => <span key={k} style={cap}>{k}</span>)}</span><span style={{ opacity: 0.7 }}>{v}</span></Fragment>)}
+          </div>
         </div>
       )}
     </>
