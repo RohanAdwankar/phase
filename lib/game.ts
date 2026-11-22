@@ -791,7 +791,11 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (a.sp <= 0 && los && !(a.tele > 0)) { a.sp = enr ? 0.65 : 1.05; const lead = dist / 42, tgt = new V(st.pos.x + st.vel.x * lead, st.pos.y + 1.1 + st.vel.y * lead * 0.5, st.pos.z + st.vel.z * lead); spawnShot(e, from, tgt.sub(from), 42, 9); sfx.play("zap", e.pos, 0.6) }
     } else if (v === 2) { // summoner: keeps its distance, calls swarmers, and mends itself while they live
       moving = dist > 30 || dist < 20; if (dist < 20) { mx = -ux; mz = -uz }
-      if (a.t <= 0) { a.t = 6; summon("swarmer", 4 + Math.min(4, st.level) + (enr ? 4 : 0), 4, 8, e.dim, 0, Math.PI * 2, e.pos); if (enr) summon("flyer", 2, 6, 10, e.dim, 0, Math.PI * 2, e.pos); sfx.play("phase", e.pos, 0.8) }
+      if (a.t <= 0) { a.t = 6; summon("swarmer", 4 + Math.min(4, st.level) + (enr ? 4 : 0), 4, 8, e.dim, 0, Math.PI * 2, e.pos); if (enr) summon("flyer", 2, 6, 10, e.dim, 0, Math.PI * 2, e.pos)
+        // swarmers alone fall to a sword, so every other wave (every wave when enraged) also carries giants, up to a few at a time
+        let big = 0; for (const c of nearChunks(2)) for (const o of c.enemies) if (o.kind === "brute" && o.dim === e.dim && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 45) big++
+        if ((enr || (a.wave = (a.wave ?? 0) + 1) % 2 === 0) && big < (enr ? 5 : 3)) summon("brute", enr ? 2 : 1, 8, 12, e.dim, 0, Math.PI * 2, e.pos)
+        sfx.play("phase", e.pos, 0.8) }
       let kids = 0; for (const c of nearChunks(2)) for (const o of c.enemies) if (o.kind === "swarmer" && o.dim === e.dim && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 35) kids++
       if (kids) e.hp = Math.min(e.maxHp ?? e.hp, e.hp + 7 * dt)
     } else if (v === 3) { // charger: telegraphs, rushes in a straight line, then is dazed; if you perch out of its reach it leaps onto your perch
