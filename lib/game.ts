@@ -949,7 +949,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ["press 3, hold the mouse to charge the sword and release looking up: you surge where you look", () => st.surge > 0],
     ["that is everything. keep practicing, or press escape and go to the real game", () => prT > 8],
   ]
+  // practice keeps a steady trickle of slow enemies coming from every dimension so there is always something to try things on
+  let prSpawnT = 0
   const practiceTick = (dt: number) => {
+    if (practice && (prSpawnT -= dt) <= 0) {
+      prSpawnT = 1.5; let near = 0; for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd() && Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) < 60) near++
+      if (near < 60) { const k = Math.random() < 0.5 ? "swarmer" : "walker"; summon(k, k === "swarmer" ? 3 : 2, 22, 40, nd(), 0, Math.PI * 2) }
+    }
     if (!practice || pr >= PRACTICE.length) return
     prT += dt; if (nd() !== prBase.nd) { prBase.nd = nd(); prBase.n++ }
     if (PRACTICE[pr][1]()) { pr++; prT = 0; prBase = { x: st.pos.x, z: st.pos.z, nd: nd(), n: 0, kills: st.kills }; sfx.play("ready"); if (pr < PRACTICE.length) PRACTICE[pr][2]?.() }
