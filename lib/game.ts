@@ -17,7 +17,7 @@ import { registry, uTime, uPlayer } from "./materials"
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
 const DT = 1 / 120, G = 24, SPEED = 10
-const ORANGE = new THREE.Color(0xff9a30), DUST = new THREE.Color(0xe8d9b0)
+const ORANGE = new THREE.Color(0xff9a30), DUST = new THREE.Color(0xe8d9b0), WHITE = new THREE.Color(0xffffff)
 // each dimension glows in its own grass colour, so a beacon, its dot in the hud and the world around it all match
 const GLOW = PALETTE.map(p => p.g1)
 
@@ -199,6 +199,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // bow: hold to draw, release to loose. Arrows fly on an arc, stick into whatever they hit, and only touch the dimension they were fired in.
   type Arrow = { mesh: THREE.Group; vel: THREE.Vector3; dim: number; power: number; life: number; stuck: boolean; boom?: boolean; boomed?: boolean }
   const arrows: Arrow[] = []
+  // the top quarter of a hit box is the head: it takes double damage and sparks white
+  const headshot = (e: Enemy, y: number) => y > e.pos.y + e.h * 0.75
   const arrowGeo = { shaft: new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6).rotateX(Math.PI / 2).translate(0, 0, 0.45), head: new THREE.ConeGeometry(0.03, 0.14, 6).rotateX(-Math.PI / 2).translate(0, 0, -0.02) }
   const arrowMat = { shaft: new THREE.MeshStandardMaterial({ color: 0xc9a56a, roughness: 0.6 }), head: new THREE.MeshStandardMaterial({ color: 0xb8bdc4, metalness: 1, roughness: 0.25 }) }
   const loose = (power: number) => {
@@ -224,8 +226,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
     const end = o.clone().addScaledVector(dir, tMin), mz = pistol.muzzle.getWorldPosition(new V()).applyMatrix4(cam.matrixWorld)
     if (hit) {
-      st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); fx.spark(end, 10, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5)
-      if ((hit.hp -= dm()) <= 0) {
+      st.hit = 0.12; hit.hitT = 0.14; sfx.play("hit", end); const head = headshot(hit, end.y); fx.spark(end, head ? 24 : 10, dir.clone().negate(), head ? WHITE : ORANGE); fx.smoke(end, 1, DUST, 0.5)
+      if ((hit.hp -= dm() * (head ? 2 : 1)) <= 0) {
         const c = hit.pos.clone().setY(hit.pos.y + 1.6)
         fx.spark(c, 90, new V(0, 1, 0), ORANGE); fx.smoke(c, 10, new THREE.Color(0x2a2a2a), 1.4); boom.position.copy(c); boom.intensity = weapon === "sword" ? 20 : 60; hit.mesh.removeFromParent(); st.kills++; onKill(hit)
         for (const c of nearChunks(2)) c.enemies = c.enemies.filter(e => e !== hit)
@@ -309,7 +311,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       a.stuck = true; a.life = 5; p.copy(end); if (onTerrain) p.y = gy
       if (a.boom && !a.boomed) { a.boomed = true; explode(end.clone(), a.dim, 6.5, 65, 0.6, 0) }
       if (tntHit) { (tntHit as Bomb).fuse = 0.05; a.life = 0; return }
-      if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; hit.hp -= (4 + 12 * a.power * a.power) * dm(); fx.spark(end, 14, dir.clone().negate(), ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
+      if (hit) { sfx.play("hit", end); st.hit = 0.15; hit.hitT = 0.14; const head = headshot(hit, end.y); hit.hp -= (4 + 12 * a.power * a.power) * dm() * (head ? 2 : 1); fx.spark(end, head ? 28 : 14, dir.clone().negate(), head ? WHITE : ORANGE); fx.smoke(end, 1, DUST, 0.5); if (hit.hp <= 0) killWalker(hit); a.life = 0 }
       else { sfx.play("thud", end, 0.7); fx.spark(end, 5, dir.clone().negate(), DUST); fx.smoke(end, 2, DUST, 0.6) }
       return
     }
