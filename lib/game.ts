@@ -1033,7 +1033,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const practiceTick = (dt: number) => {
     if (practice && (prSpawnT -= dt) <= 0) {
       prSpawnT = 1.5; let near = 0; for (const c of nearChunks(2)) for (const e of c.enemies) if (e.dim === nd() && Math.hypot(e.pos.x - st.pos.x, e.pos.z - st.pos.z) < 60) near++
-      if (near < 60) { const k = Math.random() < 0.5 ? "swarmer" : "walker"; summon(k, k === "swarmer" ? 3 : 2, 22, 40, nd(), 0, Math.PI * 2) }
+      if (near < 60) { const k = Math.random() < 0.5 ? "swarmer" : "walker"; summon(k, k === "swarmer" ? 3 : 2, 22, 40, nd(), 0, Math.PI * 2); if (Math.random() < 0.35) summon("brute", 1, 24, 40, nd(), 0, Math.PI * 2) }
     }
     if (!practice || pr >= PRACTICE.length) return
     prT += dt; if (nd() !== prBase.nd) { prBase.nd = nd(); prBase.n++ }
