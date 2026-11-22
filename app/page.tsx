@@ -52,7 +52,7 @@ export default function Page() {
           <div style={{ marginTop: 28, display: "grid", gridTemplateColumns: "auto auto", gap: "6px 36px", fontSize: 20 }}>
             {([["time", clock(win.seconds)], ["deaths", win.deaths], ["kills", win.kills], ["powerups", win.powerups], ["shrines cleared", win.shrines], ["farthest from start", `${win.farthest} m`]] as const).map(([k, v]) => <Fragment key={k}><span style={{ opacity: 0.6 }}>{k}</span><span style={{ textAlign: "right" }}>{v}</span></Fragment>)}
           </div>
-          <button style={{ ...link, marginTop: 36 }} onClick={again}>keep playing, harder</button>
+          <button style={{ ...link, marginTop: 36 }} onClick={again}>next level</button>
         </div>
       )}
       {ready && menu && !win && (
