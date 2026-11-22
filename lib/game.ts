@@ -910,7 +910,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     const wish = new V().addScaledVector(fwd, +on("KeyW") - +on("KeyS")).addScaledVector(right, +on("KeyD") - +on("KeyA"))
     if (wish.lengthSq() > 0) wish.normalize()
     const SP = SPEED * (1 + 0.08 * st.boon.spd)
-    const crouch = on("KeyC") || on("ControlLeft") || on("ShiftLeft")
+    const crouch = on("KeyC") || on("ShiftLeft")
     d += (target - d) * Math.min(1, 16 * DT)
     unstick(bx, st.slide ? 1 : 1.8)
     if (practice) st.hp = st.maxHp
@@ -1019,7 +1019,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ["wasd to move, mouse to look", () => Math.hypot(st.pos.x - prBase.x, st.pos.z - prBase.z) > 12],
     ["space to jump, space again in the air to double jump", () => st.jumps >= 1 && !st.ground],
     ["land and jump again right away: bunny hops build speed", () => st.hops >= 2],
-    ["hold c while running to slide", () => st.slide],
+    ["hold c or shift while running to slide", () => st.slide],
     ["run into a boulder to wall run, space leaps off", () => st.wallT > 0],
     ["enemies are coming. press e or q, or scroll, to phase into another dimension and slip past them", () => prBase.n >= 1,
       () => { summon("swarmer", 6, 18, 26, nd(), 0, Math.PI * 2); summon("walker", 3, 24, 32, nd(), 0, Math.PI * 2) }],
@@ -1211,7 +1211,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     ctx.textAlign = "center"; ctx.font = "22px ui-monospace, monospace"; ctx.fillText(`${nd() + 1}`, cx, cy + 8); ctx.textAlign = "left"
     }
     if (dbg.showKeys || practice) {
-      const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["", "", 20], ["Wheel", "scroll", 84]]
+      const now = performance.now(), lit = (c: string) => keys.has(c) || now - (keyT[c] ?? -1e9) < 260, caps: [string, string, number][] = [["KeyQ", "q", 44], ["KeyE", "e", 44], ["", "", 20], ["KeyW", "w", 44], ["KeyA", "a", 44], ["KeyS", "s", 44], ["KeyD", "d", 44], ["", "", 20], ["Space", "space", 96], ["KeyC", "c", 44], ["ShiftLeft", "shift", 64], ["", "", 20], ["Wheel", "scroll", 84]]
       let x = w / 2 - caps.reduce((a, c) => a + c[2] + 6, 0) / 2, y = h - 72; ctx.textAlign = "center"; ctx.font = "17px ui-monospace, monospace"
       for (const [c, label, cw] of caps) { if (c) { const on = c === "Wheel" ? now - lastWheel < 260 : lit(c); ctx.fillStyle = on ? "#fff" : "rgba(0,0,0,0.45)"; ctx.fillRect(x, y, cw, 44); ctx.fillStyle = on ? "#111" : "rgba(255,255,255,0.85)"; ctx.fillText(label, x + cw / 2, y + 28) } x += cw + 6 }
       ctx.textAlign = "left"
