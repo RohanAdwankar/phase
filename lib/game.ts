@@ -727,7 +727,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
         fx.spark(from, 30, new V(0, 1, 0), GLOWC[e.dim]); e.pos.x = st.pos.x + Math.cos(an) * rr; e.pos.z = st.pos.z + Math.sin(an) * rr; if (e.home) { const hx = e.pos.x - e.home.x, hz = e.pos.z - e.home.z, hd = Math.hypot(hx, hz); if (hd > 42) { e.pos.x = e.home.x + hx / hd * 42; e.pos.z = e.home.z + hz / hd * 42 } }; sfx.play("phase", e.pos, 1)
         const org = new V(e.pos.x, terrainY(e.pos.x, e.pos.z, e.dim) + 3, e.pos.z)
-        const nOrb = enr ? 14 : 8; for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2 + (enr ? a.t : 0); spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 10) } }
+        const nOrb = enr ? 14 : 8; for (let k = 0; k < nOrb; k++) { const t2 = (k / nOrb) * Math.PI * 2 + (enr ? a.t : 0); spawnShot(e, org, new V(Math.cos(t2), 0, Math.sin(t2)), enr ? 15 : 12, 18) }
+        a.vol = 0.45 }
+      // right after each blink it fires a fast volley aimed where you are heading
+      if (a.vol > 0 && (a.vol -= dt) <= 0) { const org = new V(e.pos.x, e.pos.y + 3, e.pos.z), lead = dist / 30; for (let k = -1; k <= 1; k += enr ? 0.5 : 1) { const tgt = new V(st.pos.x + st.vel.x * lead, st.pos.y + 1.1, st.pos.z + st.vel.z * lead), d3 = tgt.sub(org).normalize(); d3.applyAxisAngle(new V(0, 1, 0), k * 0.16); spawnShot(e, org, d3, 30, 22) } sfx.play("zap", e.pos, 0.8) }
     }
     return { moving, mx, mz, spd }
   }
