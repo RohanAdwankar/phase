@@ -761,13 +761,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
           sfx.play("bigboom", e.pos, 1); st.shake = Math.max(st.shake, live ? 0.9 : 0)
           for (let li = 0; li < a.n; li++) { const ang = a["ang" + li]
             for (let k = 0; k < 14; k++) fx.spark(new V(e.pos.x + Math.sin(ang) * (2 + k * 1.8), e.pos.y + 0.5, e.pos.z + Math.cos(ang) * (2 + k * 1.8)), 4, new V(0, 1, 0), DUST)
-            if (live && inZone(e, ang, 26, 8)) { hurtPlayer(e, 36, "crushed by a stomper"); st.vel.x += Math.sin(ang) * 6; st.vel.z += Math.cos(ang) * 6; st.vel.y = 11; st.ground = false }
+            if (live && inZone(e, ang, 23.4, 7.2)) { hurtPlayer(e, 36, "crushed by a stomper"); st.vel.x += Math.sin(ang) * 6; st.vel.z += Math.cos(ang) * 6; st.vel.y = 11; st.ground = false }
           }
           if (live && dist < 6.5) { hurtPlayer(e, 20, "crushed by a stomper"); st.vel.y = 9; st.ground = false } } }
       else if (a.t <= 0 && dist < 32) { // aim at where you are heading, lock the lanes, and warn
         a.tele = enr ? 0.9 : 1.15; a.t = 3.2
         const base = Math.atan2(st.pos.x + st.vel.x * 0.35 - e.pos.x, st.pos.z + st.vel.z * 0.35 - e.pos.z), lanes = enr ? [-0.6, 0, 0.6] : [0]
-        a.n = lanes.length; lanes.forEach((o, li) => { a["ang" + li] = base + o; spawnZone(e, base + o, 26, 8, a.tele) })
+        a.n = lanes.length; lanes.forEach((o, li) => { a["ang" + li] = base + o; spawnZone(e, base + o, 23.4, 7.2, a.tele) })
         sfx.play("surge", e.pos, 0.7) }
     } else if (v === 1) { // sniper: holds a firing range, tracks you with a laser, locks it, then fires along it; between shots it lobs fast lead-aimed bolts
       const los = dist < 80 && sees(e.pos.x, e.pos.z, e.dim), aim = new V(st.pos.x, st.pos.y + 1.2, st.pos.z)
