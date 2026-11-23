@@ -220,11 +220,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const mag = () => 12 * (lvl("pistol") >= 1 ? 2 : 1) * (berserk() ? 2 : 1)
   const spent = () => st.sk[0] + st.sk[1] + st.sk[2]
   // points come from grinding: 20 giants (brutes), 50 spiders (walkers), or 100 drones and kamikazes (flyers and swarmers) each give one
-  const KILLS: Partial<Record<Kind, [number, number]>> = { brute: [0, 20], walker: [1, 50], swarmer: [2, 100], flyer: [2, 100] }
-  const emitSkills = () => window.dispatchEvent(new CustomEvent("phase-skills", { detail: { points: st.pts - spent(), levels: [...st.sk], progress: [st.kc[0] % 20, st.kc[1] % 50, st.kc[2] % 100] } }))
+  // the one dial for how hard upgrades are to earn: every kill goal below is its base times UPGRADE_SCALE (was 1)
+  const UPGRADE_SCALE = 2, GOALS = [20, 50, 100].map(n => n * UPGRADE_SCALE)
+  const KILLS: Partial<Record<Kind, number>> = { brute: 0, walker: 1, swarmer: 2, flyer: 2 }
+  const emitSkills = () => window.dispatchEvent(new CustomEvent("phase-skills", { detail: { points: st.pts - spent(), levels: [...st.sk], progress: GOALS.map((n, i) => st.kc[i] % n), goals: GOALS } }))
   const countKill = (k: Kind) => {
-    const g = KILLS[k]; if (!g || practice) return
-    if (++st.kc[g[0]] % g[1] === 0) { st.pts++; banner("skill point earned: pause to spend it", 3); sfx.play("ready") }
+    const g = KILLS[k]; if (g === undefined || practice) return
+    if (++st.kc[g] % GOALS[g] === 0) { st.pts++; banner("skill point earned: pause to spend it", 3); sfx.play("ready") }
     emitSkills()
   }
   const buy = (i: number) => {
@@ -1311,7 +1313,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   addEventListener("mousedown", md); addEventListener("mouseup", mu); addEventListener("contextmenu", noMenu)
   addEventListener("wheel", wh, { passive: false }); canvas.addEventListener("click", click)
   status(1, "ready")
-  return { buy, begin: () => { started = true }, harder: () => { st.level += 2; banner("endless: every enemy is tougher", 4) }, stop: () => {
+  return { buy, begin: () => { started = true; emitSkills() }, harder: () => { st.level += 2; banner("endless: every enemy is tougher", 4) }, stop: () => {
     cancelAnimationFrame(raf); post.composer.dispose(); renderer.dispose()
     removeEventListener("keydown", kd); removeEventListener("keyup", ku); removeEventListener("mousemove", mm)
     removeEventListener("mousedown", md); removeEventListener("mouseup", mu); removeEventListener("contextmenu", noMenu)

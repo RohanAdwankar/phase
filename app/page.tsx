@@ -10,18 +10,18 @@ const TREE: [string, [string, string][]][] = [
   ["bow", [["piercing", "arrows fly through every enemy in line"], ["fire", "arrows leave a burning patch where they land"]]],
   ["sword", [["parry", "a swing in the air turns enemy shots back on them"], ["no cooldown", "short swings are twice as fast and chain freely"]]],
 ]
-const GOALS = [["giants", 20], ["spiders", 50], ["drones and kamikazes", 100]] as const
+const GOALS = ["giants", "spiders", "drones and kamikazes"]
 const cap = { background: "rgba(255,255,255,0.14)", padding: "3px 9px", marginRight: 5, fontFamily: "ui-monospace, monospace", fontSize: 14 } as const
 const link = { background: "none", border: 0, color: "#fff", font: "inherit", fontSize: 22, padding: "6px 0", cursor: "pointer" } as const
 
 type Api = { stop: () => void; begin: () => void; harder: () => void; buy: (i: number) => void }
-type Skills = { points: number; levels: number[]; progress: number[] }
+type Skills = { points: number; levels: number[]; progress: number[]; goals: number[] }
 type Win = { seconds: number; deaths: number; kills: number; powerups: number; shrines: number; farthest: number }
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
 
 export default function Page() {
   const game = useRef<HTMLCanvasElement>(null), hud = useRef<HTMLCanvasElement>(null), api = useRef<Api | null>(null)
-  const [load, setLoad] = useState({ frac: 0, label: "starting" }), [ready, setReady] = useState(false), [menu, setMenu] = useState(true), [played, setPlayed] = useState(false), [isPractice, setPractice] = useState(false), [win, setWin] = useState<Win | null>(null), [sk, setSk] = useState<Skills>({ points: 0, levels: [0, 0, 0], progress: [0, 0, 0] })
+  const [load, setLoad] = useState({ frac: 0, label: "starting" }), [ready, setReady] = useState(false), [menu, setMenu] = useState(true), [played, setPlayed] = useState(false), [isPractice, setPractice] = useState(false), [win, setWin] = useState<Win | null>(null), [sk, setSk] = useState<Skills>({ points: 0, levels: [0, 0, 0], progress: [0, 0, 0], goals: [0, 0, 0] })
   useEffect(() => {
     const abort = new AbortController(), q = new URLSearchParams(location.search), demo = q.has("demo"), practice = q.has("practice"); setPractice(practice)
     const stop = import("@/lib/game").then(m => m.startGame(game.current!, hud.current!, abort.signal, (frac, label) => setLoad({ frac, label }), practice)).then(a => { api.current = a; setReady(true); if (demo) { setMenu(false); a.begin() } return a })
@@ -62,7 +62,7 @@ export default function Page() {
           {!played && <a style={{ ...link, textDecoration: "none" }} href={isPractice ? "./" : "?practice"}>{isPractice ? "real game" : "tutorial"}</a>}
           {played && !isPractice && (
             <div style={{ marginTop: 28, fontSize: 14, textAlign: "center" }}>
-              <div style={{ opacity: 0.7 }}>{sk.points} skill {sk.points === 1 ? "point" : "points"} · {GOALS.map(([n, g], i) => `${n} ${sk.progress[i]}/${g}`).join(" · ")}</div>
+              <div style={{ opacity: 0.7 }}>{sk.points} skill {sk.points === 1 ? "point" : "points"} · {GOALS.map((n, i) => `${n} ${sk.progress[i]}/${sk.goals[i]}`).join(" · ")}</div>
               <div style={{ display: "flex", gap: 36, marginTop: 14 }}>
                 {TREE.map(([w, nodes], i) => (
                   <div key={w} style={{ display: "flex", flexDirection: "column", gap: 8, width: 190 }}>
