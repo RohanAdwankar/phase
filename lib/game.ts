@@ -521,6 +521,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       e.mesh.position.set(e.pos.x, e.pos.y, e.pos.z)
       e.update(dt, moving, time * 5, e.kind === "brute" || e.kind === "boss" || e.kind === "guardian" ? Math.max(0, e.fireT / 0.9) : 0)
       if (e.kind === "boss") { bossTick(e, dt, dist); rehome(e) }
+      if (e.kind === "guardian") rehome(e) // it wanders off its spawn chunk, so it moves to the chunk it stands in and stays loaded with it
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
       if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
       if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt * (1 + 0.12 * st.level)) <= 0 && clearShot(e)) {
@@ -628,6 +629,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     e.ghost = mats
   }
   // a chasing enemy moves between chunks: keep it in the list of the chunk it stands in so hits and ticks still find it
+  // a mesh whose chunk was disposed keeps its parent group, so "has a parent" proves nothing: it must hang off the scene itself
+  const inScene = (o: THREE.Object3D) => { while (o.parent) o = o.parent; return o === scene }
   const rehome = (e: Enemy) => {
     const to = chunks.get(chunkKey(Math.floor(e.pos.x / CH), Math.floor(e.pos.z / CH))); if (!to || to.enemies.includes(e)) return
     for (const c of chunks.values()) c.enemies = c.enemies.filter(x => x !== e)
@@ -859,7 +862,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         for (const py of sh.pylons) {
           ensurePylon(sh, py)
           if (py.group && !py.cleared && sh.state === "idle") {
-            if (py.guard && !py.guard.mesh.parent) py.guard = null // its chunk unloaded: it respawns
+            if (py.guard && !inScene(py.guard.mesh)) py.guard = null // its chunk unloaded: it respawns
             if (!py.guard) spawnGuardian(py)
             // the guardian defends its crystal: it steps in front of it when you come close
             const g = py.guard, dPy = Math.hypot(p.x - py.x, p.z - py.z)
@@ -882,13 +885,13 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
           }
         }
         // the boss was left behind and its chunk unloaded: the shrine re-arms
-        if (sh.state === "boss" && sh.boss && !sh.boss.mesh.parent && !dying.has(sh.boss)) { sh.state = "idle"; sh.boss = null; resetShrine(sh) }
+        if (sh.state === "boss" && sh.boss && !inScene(sh.boss.mesh) && !dying.has(sh.boss)) { sh.state = "idle"; sh.boss = null; resetShrine(sh) }
       }
     }
     st.focus = best && bd < 260 && best.state === "idle" ? best : null; st.target = best; st.targetD = bd
     let be: Enemy | null = null
     for (const sh of shrines.values()) { if (sh.boss && sh.state === "boss") be = sh.boss; if (!be) for (const py of sh.pylons) if (py.guard && py.guard.hp > 0 && py.guard.dim === nd() && Math.hypot(p.x - py.guard.pos.x, p.z - py.guard.pos.z) < 80) be = py.guard }
-    st.bossE = be && be.mesh.parent ? be : null
+    st.bossE = be && inScene(be.mesh) ? be : null
     st.bannerT = Math.max(0, st.bannerT - dt)
   }
   const stream = () => {
