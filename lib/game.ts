@@ -818,7 +818,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if (live && dist < e.r + 1.2 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 1e4, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false } // a direct hit is lethal
         if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.45; a.hit = 0; const dd = Math.max(0.01, Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); a.cx = (st.pos.x - e.pos.x) / dd; a.cz = (st.pos.z - e.pos.z) / dd; spawnZone(e, Math.atan2(a.cx, a.cz), 30, 3.2, a.tele) } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
       else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; sfx.play("surge", e.pos, 1) } }
-      else if (a.t <= 0 && dist < 45 && dist > 8) { // lock the lane, mark it red, then run it down
+      else if (a.t <= 0 && dist < 45 && dist > 3) { // lock the lane, mark it red, then run it down
         a.tele = enr ? 0.7 : 0.95; a.t = 5; a.cx = ux; a.cz = uz; spawnZone(e, Math.atan2(ux, uz), 30, 3.2, a.tele) }
     } else { // blinker: hops around you and throws a solid ring of orbs, alternately low (jump it) and high (slide under it); shoot an orb to send it back at the blinker
       moving = false
