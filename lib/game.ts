@@ -731,7 +731,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         f.tick = 0.3
         // the fire does not know whose it is: standing in it burns you too
         if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 2.5, "burned by your own fire")
-        for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr) {
+        for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && e.kind !== "flyer" && e.pos.y - terrainY(e.pos.x, e.pos.z, e.dim) < 1.5 && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr) { // drones fly and anything off the ground is above the flames
           e.hp -= 3 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
         }
       }
