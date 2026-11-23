@@ -219,7 +219,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const berserk = () => lvl("pistol") >= 2 && st.hp <= 0.2 * st.maxHp
   const mag = () => 12 * (lvl("pistol") >= 1 ? 2 : 1) * (berserk() ? 2 : 1)
   const spent = () => st.sk[0] + st.sk[1] + st.sk[2]
-  // points come from grinding: 20 giants (brutes), 50 spiders (walkers), or 100 drones and kamikazes (flyers and swarmers) each give one
+  // points come from grinding: giants (brutes), spiders (walkers), or drones and kamikazes (flyers and swarmers); GOALS below says how many of each make one point
   // the one dial for how hard upgrades are to earn: every kill goal below is its base times UPGRADE_SCALE (was 1)
   const UPGRADE_SCALE = 2, GOALS = [20, 50, 100].map(n => n * UPGRADE_SCALE)
   const KILLS: Partial<Record<Kind, number>> = { brute: 0, walker: 1, swarmer: 2, flyer: 2 }
