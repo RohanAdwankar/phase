@@ -6,6 +6,8 @@ import { PALETTE } from "./toon"
 // Every part is a flat-shaded solid in the dimension's own colour with glowing accents, built per dimension so it fades with the world.
 export type BossBody = { mesh: THREE.Group; update: (dt: number, moving: boolean, phase: number, slam?: number) => void; turret: THREE.Object3D }
 
+// guardians that are smaller than the default body, by dimension: the model and its hit box shrink together
+export const GUARD_SHRINK: Record<number, number> = { 1: 0.47 / 1.4, 3: 1 / 3 }
 export const buildBoss = (kind: "boss" | "guardian", dim: number): BossBody => {
   const col = new THREE.Color(PALETTE[dim].g1), dark = new THREE.Color(0x14161b).lerp(col, 0.18)
   const solid = (c: THREE.Color, rough = 0.5, metal = 0.55) => { const m = track(dim, new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal, flatShading: true, transparent: true })); m.userData.xray = true; return m }
@@ -77,6 +79,6 @@ export const buildBoss = (kind: "boss" | "guardian", dim: number): BossBody => {
     turret.position.set(0, 4.2, -1.4); g.add(turret)
     update = (dt, _m, phase) => { core.position.y = 4.2 + Math.sin(phase * 0.18) * 0.5; core.rotation.y -= dt * 0.9; blades.forEach((b, i) => { b.position.y = core.position.y; b.rotation.y += dt * 1.8; b.rotation.z = Math.sin(phase * 0.2 + i) * 0.25 }) }
   }
-  g.scale.setScalar(kind === "boss" ? 1.6 : dim === 1 ? 0.47 : 1.4)
+  g.scale.setScalar(kind === "boss" ? 1.6 : 1.4 * (GUARD_SHRINK[dim] ?? 1))
   return { mesh: g, update, turret }
 }

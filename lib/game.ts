@@ -4,6 +4,7 @@ import { makeSky, SUN, skyTime } from "./sky"
 import { flashTexture } from "./textures"
 import { makeFx } from "./fx"
 import { Enemy, Kind, makeEnemy } from "./actors"
+import { GUARD_SHRINK } from "./bosses"
 import { makeViewmodel } from "./viewmodel"
 import { makePistol } from "./pistol"
 import { makeSword } from "./sword"
@@ -804,16 +805,16 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
         if ((a.leap -= dt) <= 0) {
           sfx.play("bigboom", e.pos, 1); st.shake = Math.max(st.shake, live ? 0.9 : 0); e.pos.x = a.lx; e.pos.z = a.lz
           for (let k = 0; k < 24; k++) { const an = (k / 24) * Math.PI * 2; fx.spark(new V(a.lx + Math.cos(an) * 5, st.pos.y, a.lz + Math.sin(an) * 5), 3, new V(0, 1, 0), DUST) }
-          if (live && Math.abs(st.pos.x - a.lx) < 6.6 && Math.abs(st.pos.z - a.lz) < 6.6 && st.pos.y - a.ly < 4) { hurtPlayer(e, 40, "flattened by a charger"); st.vel.x += (st.pos.x - a.lx) * 1.5; st.vel.z += (st.pos.z - a.lz) * 1.5; st.vel.y = 11; st.ground = false } } }
+          if (live && Math.abs(st.pos.x - a.lx) < 4.4 && Math.abs(st.pos.z - a.lz) < 4.4 && st.pos.y - a.ly < 4) { hurtPlayer(e, 40, "flattened by a charger"); st.vel.x += (st.pos.x - a.lx) * 1.5; st.vel.z += (st.pos.z - a.lz) * 1.5; st.vel.y = 11; st.ground = false } } }
       else if (live && a.lp <= 0 && st.pos.y - e.pos.y > 2.5 && dist < 90 && !(a.chg > 0)) { // perched: mark a square under you, then land on it
-        a.lp = enr ? 3 : 4.5; a.leap = enr ? 0.8 : 1.1; a.lx = st.pos.x; a.lz = st.pos.z; a.ly = st.pos.y; spawnZone(e, 0, 12, 12, a.leap, { x: a.lx, z: a.lz - 6 }); sfx.play("surge", e.pos, 0.7) }
+        a.lp = enr ? 3 : 4.5; a.leap = enr ? 0.8 : 1.1; a.lx = st.pos.x; a.lz = st.pos.z; a.ly = st.pos.y; spawnZone(e, 0, 8, 8, a.leap, { x: a.lx, z: a.lz - 4 }); sfx.play("surge", e.pos, 0.7) }
       else if (a.stun > 0) { a.stun -= dt; moving = false }
       else if (a.chg > 0) { a.chg -= dt; mx = a.cx; mz = a.cz; spd = 6.5; moving = true
-        if (live && dist < 4.5 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 1e4, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false } // a direct hit is lethal
-        if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.45; a.hit = 0; const dd = Math.max(0.01, Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); a.cx = (st.pos.x - e.pos.x) / dd; a.cz = (st.pos.z - e.pos.z) / dd; spawnZone(e, Math.atan2(a.cx, a.cz), 30, 5.5, a.tele) } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
+        if (live && dist < e.r + 1.2 && a.hit !== 1) { a.hit = 1; hurtPlayer(e, 1e4, "run down by a charger"); st.vel.x += a.cx * 14; st.vel.z += a.cz * 14; st.vel.y = 8; st.ground = false } // a direct hit is lethal
+        if (a.chg <= 0) { if (enr && a.chain !== 1) { a.chain = 1; a.tele = 0.45; a.hit = 0; const dd = Math.max(0.01, Math.hypot(st.pos.x - e.pos.x, st.pos.z - e.pos.z)); a.cx = (st.pos.x - e.pos.x) / dd; a.cz = (st.pos.z - e.pos.z) / dd; spawnZone(e, Math.atan2(a.cx, a.cz), 30, 3.2, a.tele) } else { a.chain = 0; a.stun = enr ? 0.6 : 1.6 } } }
       else if (a.tele > 0) { moving = false; if ((a.tele -= dt) <= 0) { a.chg = 1.1; a.hit = 0; sfx.play("surge", e.pos, 1) } }
       else if (a.t <= 0 && dist < 45 && dist > 8) { // lock the lane, mark it red, then run it down
-        a.tele = enr ? 0.7 : 0.95; a.t = 5; a.cx = ux; a.cz = uz; spawnZone(e, Math.atan2(ux, uz), 30, 5.5, a.tele) }
+        a.tele = enr ? 0.7 : 0.95; a.t = 5; a.cx = ux; a.cz = uz; spawnZone(e, Math.atan2(ux, uz), 30, 3.2, a.tele) }
     } else { // blinker: hops around you and throws a solid ring of orbs, alternately low (jump it) and high (slide under it); shoot an orb to send it back at the blinker
       moving = false
       if (a.t <= 0) { a.t = enr ? 2.2 : 3.2; const an = Math.random() * Math.PI * 2, rr = 14 + Math.random() * 8
@@ -831,7 +832,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     let best = { x: py.x + 9, z: py.z, c: -1e9 }
     for (let k = 0; k < 8; k++) { const an = (k / 8) * Math.PI * 2, x = py.x + Math.cos(an) * 10, z = py.z + Math.sin(an) * 10, c = clearance(py.dim, x, z); if (c > best.c) best = { x, z, c } }
     const pos = new V(best.x, terrainY(best.x, best.z, py.dim), best.z), e = makeEnemy("guardian", world.foe, py.dim, pos), ch = chunks.get(chunkKey(Math.floor(pos.x / CH), Math.floor(pos.z / CH))); if (!ch) return
-    e.variant = py.dim; if (py.dim === 1) { e.r *= 0.47; e.hr *= 0.47; e.h *= 0.47 } e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
+    e.variant = py.dim; { const k = GUARD_SHRINK[py.dim] ?? 1; e.r *= k; e.hr *= k; e.h *= k } e.hp = e.maxHp = 230 * (1 + 0.5 * st.level); e.lv = st.level; e.home = { x: py.x, z: py.z }; e.mesh.position.copy(pos)
     ch.group.add(e.mesh); ch.enemies.push(e); py.guard = e
   }
   const bossDown = (e: Enemy) => {
