@@ -730,9 +730,9 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if ((f.tick -= dt) <= 0) {
         f.tick = 0.3
         // the fire does not know whose it is: standing in it burns you too
-        if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 5, "burned by your own fire")
+        if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 2.5, "burned by your own fire")
         for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr) {
-          e.hp -= 6 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
+          e.hp -= 3 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
         }
       }
       if (f.t <= 0) { f.mesh.removeFromParent(); f.mesh.geometry.dispose(); (f.mesh.material as THREE.Material).dispose(); fires.splice(i, 1) }
