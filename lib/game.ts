@@ -219,8 +219,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const berserk = () => lvl("pistol") >= 2 && st.hp <= 0.2 * st.maxHp
   const mag = () => 12 * (lvl("pistol") >= 1 ? 2 : 1) * (berserk() ? 2 : 1)
   const spent = () => st.sk[0] + st.sk[1] + st.sk[2]
-  // points come from grinding: 20 giants, 50 spiders, or 100 drones and walkers each give one
-  const KILLS: Partial<Record<Kind, [number, number]>> = { brute: [0, 20], swarmer: [1, 50], flyer: [2, 100], walker: [2, 100] }
+  // points come from grinding: 20 giants (brutes), 50 spiders (walkers), or 100 drones and kamikazes (flyers and swarmers) each give one
+  const KILLS: Partial<Record<Kind, [number, number]>> = { brute: [0, 20], walker: [1, 50], swarmer: [2, 100], flyer: [2, 100] }
   const emitSkills = () => window.dispatchEvent(new CustomEvent("phase-skills", { detail: { points: st.pts - spent(), levels: [...st.sk], progress: [st.kc[0] % 20, st.kc[1] % 50, st.kc[2] % 100] } }))
   const countKill = (k: Kind) => {
     const g = KILLS[k]; if (!g || practice) return
@@ -525,12 +525,12 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (e.kind === "boss") { bossTick(e, dt, dist); rehome(e) }
       if (e.kind === "guardian") rehome(e) // it wanders off its spawn chunk, so it moves to the chunk it stands in and stays loaded with it
       if (e.hitT > 0) { e.hitT -= dt; e.mesh.position.x += Math.sin(time * 90) * 0.04 * (e.hitT / 0.14) }
-      if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "swarmed"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
+      if (e.kind === "swarmer" && live && dist < 1.9 && Math.abs(p.y - e.pos.y) < 2) { hurtPlayer(e, 10, "blown up by a kamikaze"); st.vel.x -= dx / dist * 4; st.vel.z -= dz / dist * 4; killWalker(e, false); continue }
       if ((e.kind === "walker" || e.kind === "flyer") && live && dist < 45 && (e.fireT -= dt * (1 + 0.12 * st.level)) <= 0 && clearShot(e)) {
         e.fireT = e.kind === "flyer" ? 0.55 + Math.random() * 0.5 : 0.9 + Math.random() * 0.7
         const from = e.turret.getWorldPosition(new V()), to = new V(p.x, p.y + 1.2, p.z)
         beam(from, to, 0.03, 0.12); sfx.play("zap", from, 0.8)
-        if (Math.random() < (e.kind === "flyer" ? 0.4 : 0.55) * dodge() && !parry(e)) { hurtPlayer(e, e.kind === "flyer" ? 6 : 9, e.kind === "flyer" ? "shot by a drone" : "shot by a walker"); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
+        if (Math.random() < (e.kind === "flyer" ? 0.4 : 0.55) * dodge() && !parry(e)) { hurtPlayer(e, e.kind === "flyer" ? 6 : 9, e.kind === "flyer" ? "shot by a drone" : "shot by a spider"); fx.spark(to, 6, new V(0, 1, 0), ORANGE) }
       }
     }
   }
