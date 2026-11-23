@@ -10,7 +10,7 @@ const TREE: [string, [string, string][]][] = [
   ["bow", [["piercing", "arrows fly through every enemy in line"], ["fire", "arrows leave a burning patch where they land"]]],
   ["sword", [["parry", "a swing in the air turns enemy shots back on them"], ["no cooldown", "short swings are twice as fast and chain freely"]]],
 ]
-const GOALS = [["giants", 20], ["spiders", 50], ["drones and bomb guys", 100]] as const
+const GOALS = [["giants", 20], ["spiders", 50], ["drones and walkers", 100]] as const
 const cap = { background: "rgba(255,255,255,0.14)", padding: "3px 9px", marginRight: 5, fontFamily: "ui-monospace, monospace", fontSize: 14 } as const
 const link = { background: "none", border: 0, color: "#fff", font: "inherit", fontSize: 22, padding: "6px 0", cursor: "pointer" } as const
 

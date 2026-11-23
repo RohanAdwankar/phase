@@ -219,7 +219,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const berserk = () => lvl("pistol") >= 2 && st.hp <= 0.2 * st.maxHp
   const mag = () => 12 * (lvl("pistol") >= 1 ? 2 : 1) * (berserk() ? 2 : 1)
   const spent = () => st.sk[0] + st.sk[1] + st.sk[2]
-  // points come from grinding: 20 giants, 50 spiders, or 100 drones and bomb guys each give one
+  // points come from grinding: 20 giants, 50 spiders, or 100 drones and walkers each give one
   const KILLS: Partial<Record<Kind, [number, number]>> = { brute: [0, 20], swarmer: [1, 50], flyer: [2, 100], walker: [2, 100] }
   const emitSkills = () => window.dispatchEvent(new CustomEvent("phase-skills", { detail: { points: st.pts - spent(), levels: [...st.sk], progress: [st.kc[0] % 20, st.kc[1] % 50, st.kc[2] % 100] } }))
   const countKill = (k: Kind) => {
