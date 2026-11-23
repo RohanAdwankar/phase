@@ -487,7 +487,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const enemyTick = (dt: number) => {
     const p = st.pos
     for (const c of nearChunks(2)) for (const e of [...c.enemies]) {
-      if (gap(e.dim) > 1.1 && e.kind !== "boss") continue
+      if (dying.has(e) || (gap(e.dim) > 1.1 && e.kind !== "boss")) continue // the loop walks a snapshot, so something killed earlier in the frame must not act or be put back
       // enemies toughen with every beacon completed: hp is raised the first time they act after a level up
       if ((e.lv ?? 0) < st.level) { const k = (1 + 0.5 * st.level) / (1 + 0.5 * (e.lv ?? 0)); e.hp *= k; if (e.maxHp) e.maxHp *= k; e.lv = st.level }
       let dx = p.x - e.pos.x, dz = p.z - e.pos.z, dist = Math.max(0.01, Math.hypot(dx, dz))
@@ -634,7 +634,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   // a mesh whose chunk was disposed keeps its parent group, so "has a parent" proves nothing: it must hang off the scene itself
   const inScene = (o: THREE.Object3D) => { while (o.parent) o = o.parent; return o === scene }
   const rehome = (e: Enemy) => {
-    const to = chunks.get(chunkKey(Math.floor(e.pos.x / CH), Math.floor(e.pos.z / CH))); if (!to || to.enemies.includes(e)) return
+    const to = chunks.get(chunkKey(Math.floor(e.pos.x / CH), Math.floor(e.pos.z / CH))); if (!to || to.enemies.includes(e) || dying.has(e)) return
     for (const c of chunks.values()) c.enemies = c.enemies.filter(x => x !== e)
     to.enemies.push(e); to.group.add(e.mesh)
   }
