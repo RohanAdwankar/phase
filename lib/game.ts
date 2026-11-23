@@ -18,6 +18,8 @@ import { registry, uTime, uPlayer } from "./materials"
 const V = THREE.Vector3
 type Axis = "x" | "y" | "z"
 const DT = 1 / 120, G = 24, SPEED = 10
+// difficulty grows with every guardian cleared (and every level from a warden): mob density is 1 + PER_CLEARED * progress, up to MAX_DENSITY, and newly streamed ground stops filling once ENEMY_CAP enemies are loaded
+const DIFFICULTY = { PER_CLEARED: 0.1, MAX_DENSITY: 5, ENEMY_CAP: 4000 }
 const ORANGE = new THREE.Color(0xff9a30), DUST = new THREE.Color(0xe8d9b0), WHITE = new THREE.Color(0xffffff)
 // each dimension glows in its own grass colour, so a beacon, its dot in the hud and the world around it all match
 const GLOW = PALETTE.map(p => p.g1)
@@ -109,7 +111,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   const genMs: number[] = []
   let budget = 0
   const st = { pos: new V(0, terrainY(0, 0) + 0.05, 0), vel: new V(), yaw: 0, pitch: 0, ground: false, jumps: 0, slide: false, coyote: 0,
-    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, power: null as { k: string; t: number } | null, runT: 0, wins: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0, kc: [0, 0, 0], pts: 0, sk: [0, 0, 0], wasBerserk: false,
+    wallT: 0, wallCD: 0, contact: 0, wn: new V(), hp: 100, maxHp: 100, jumpBuf: 0, jumpFresh: false, hopT: 0, hops: 0, focus: null as { cx: number; cz: number; order: number[]; lit: boolean[]; next: number; pylons: { x: number; z: number; dim: number }[] } | null, target: null as { cx: number; cz: number } | null, targetD: 0, bossE: null as Enemy | null, level: 0, boon: { dmg: 0, spd: 0, cd: 0 }, banner: "", bannerT: 0, kills: 0, fireT: 0, ammo: 12, reload: 0, hold: 0, power: null as { k: string; t: number } | null, runT: 0, wins: 0, tnt: 6, tntT: 0, items: 0, deadT: 0, deadLen: 1.9, inv: 0, respawnFx: 0, deaths: 0, cause: "", scrapeT: 0, stepD: 0, gCd: 0, tCd: 0, shake: 0, draw: 0, swing: 0, charge: 0, surge: 0, surgeLen: 1, surgeSpd: 0, surgeHit: new Set<unknown>(), spin: 0, sdir: new V(), hit: 0, hurt: 0, kick: 0, roll: 0, flash: 0, bob: 0, kc: [0, 0, 0], cleared: 0, pts: 0, sk: [0, 0, 0], wasBerserk: false,
     jump: false, fire: false, glide: false, lookX: 0, lookY: 0 }
   let d = 2, target = 2, best = 0, time = 0
   const keys = new Set<string>()
@@ -315,7 +317,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     for (const b of bombs) if (b.kind === "tnt" && b.dim === e.dim && Math.hypot(b.pos.x - e.pos.x, b.pos.z - e.pos.z) < 3.6 && Math.abs(b.pos.y - e.pos.y) < 3) b.fuse = Math.min(b.fuse, 0.08)
     const big = { walker: [6.5, 9, 140], swarmer: [3.4, 5, 40], flyer: [5, 7, 90], brute: [10, 16, 260], boss: [16, 20, 420], guardian: [11, 15, 300] }[e.kind]
     if (e.kind === "boss") bossDown(e)
-    if (e.kind === "guardian") for (const sh of shrines.values()) for (const py of sh.pylons) if (py.guard === e) { py.cleared = true; py.guard = null; banner("the guardian falls. the beacon is yours to claim", 3) }
+    if (e.kind === "guardian") for (const sh of shrines.values()) for (const py of sh.pylons) if (py.guard === e) { st.cleared++; py.cleared = true; py.guard = null; banner("the guardian falls. the beacon is yours to claim", 3) }
     explode(c, e.dim, big[0], big[1], 0.7 + big[0] * 0.05, 0)
     fx.spark(c, big[2], new V(0, 1, 0), ORANGE); fx.smoke(c, Math.round(big[0] * 2), new THREE.Color(0x2a2a2a), big[0] * 0.34)
   }
@@ -902,12 +904,19 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     st.bossE = be && inScene(be.mesh) ? be : null
     st.bannerT = Math.max(0, st.bannerT - dt)
   }
+  // how crowded newly streamed ground is: it grows with progress, the tutorial stays at the base population, and a full world stops growing
+  const progress = () => st.cleared + st.level
+  const density = () => {
+    if (practice) return 1
+    let loaded = 0; for (const c of chunks.values()) loaded += c.enemies.length
+    return loaded > DIFFICULTY.ENEMY_CAP ? 1 : Math.min(DIFFICULTY.MAX_DENSITY, 1 + DIFFICULTY.PER_CLEARED * progress())
+  }
   const stream = () => {
     const [px, pz] = pc()
     const want: [number, number][] = []
     for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) want.push([px + dx, pz + dz])
     want.sort((a, b) => Math.hypot(a[0] - px, a[1] - pz) - Math.hypot(b[0] - px, b[1] - pz))
-    for (const [cx, cz] of want) if (budget > 0 && !chunks.has(chunkKey(cx, cz))) { budget--; const t = performance.now(); chunks.set(chunkKey(cx, cz), buildChunk(scene, world, cx, cz)); genMs.push(Math.round(performance.now() - t)) }
+    for (const [cx, cz] of want) if (budget > 0 && !chunks.has(chunkKey(cx, cz))) { budget--; const t = performance.now(); chunks.set(chunkKey(cx, cz), buildChunk(scene, world, cx, cz, density())); genMs.push(Math.round(performance.now() - t)) }
     for (const c of chunks.values()) {
       const r = ring(c)
       if (r <= 1 && !c.detail && budget > 0) { budget--; buildDetail(world, c) }
@@ -1272,7 +1281,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { fires, spawnFire, buy, parrying, shots, rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { density, progress, fires, spawnFire, buy, parrying, shots, rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()

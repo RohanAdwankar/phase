@@ -129,7 +129,8 @@ const mat4 = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, 
 export const chunkKey = (cx: number, cz: number) => `${cx},${cz}`
 export const spawn = new V(0, 0, 0)
 
-export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number): Chunk => {
+// density scales how many patrols each cell holds (1 is the original population)
+export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number, density = 1): Chunk => {
   const x0 = cx * CH, z0 = cz * CH
   const c: Chunk = { cx, cz, group: new THREE.Group(), detail: null, lods: { hi: [], lo: [] }, boxes: [], enemies: [], grass: [], geos: [] }
   scene.add(c.group)
@@ -191,10 +192,10 @@ export const buildChunk = (scene: THREE.Scene, w: World, cx: number, cz: number)
         c.boxes.push({ min: new V(x - 2.3, y, z - 2.3), max: new V(x + 2.3, y + 0.5, z + 2.3), dim })
         boulders(dim, [[x, y + 0.5 - 0.6 * 1.4, z, 3.1, 1.4, 3.1, r() * 6.28, r() * 2]], true)
       }
-      // a patrol: a mix of walkers, swarmers that come in packs, flying drones and the occasional brute
-      if (r() < 0.6 && !near0(cxm, czm, 30)) {
+      // a patrol: a mix of walkers, swarmers that come in packs, flying drones and the occasional brute; density above 1 adds patrols and fattens the swarms
+      for (let want = 0.6 * density; want > 0 && !near0(cxm, czm, 30) && r() < Math.min(1, want); want -= 1) {
         const roll = r(), kind: Kind = roll < 0.4 ? "walker" : roll < 0.7 ? "swarmer" : roll < 0.88 ? "flyer" : "brute"
-        const n = kind === "swarmer" ? 3 + Math.floor(r() * 3) : kind === "walker" && r() < 0.4 ? 2 : 1
+        const n = (kind === "swarmer" ? 3 + Math.floor(r() * 3) + Math.round((density - 1) * 0.5) : kind === "walker" && r() < 0.4 ? 2 : 1)
         for (let m = 0; m < n; m++) {
           const pos = new V(cxm + (r() - 0.5) * 12, 0, czm + (r() - 0.5) * 12), rr = STATS[kind].r
           if (c.enemies.some(o => o.dim === dim && Math.hypot(o.pos.x - pos.x, o.pos.z - pos.z) < o.r + rr + 0.6)) continue
