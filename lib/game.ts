@@ -706,7 +706,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       if (o.life <= 0) { o.mesh.removeFromParent(); (o.mesh.material as THREE.Material).dispose(); shots.splice(i, 1) }
     }
   }
-  // bow tier two: where an arrow lands it leaves a patch of fire that burns every enemy standing in it
+  // bow tier two: where an arrow lands it leaves a patch of fire that burns everything standing in it, you included
   const fires: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; t: number; tick: number }[] = []
   const fireGeo = new THREE.CircleGeometry(4.5, 28).rotateX(-Math.PI / 2)
   const spawnFire = (at: THREE.Vector3, dim: number) => {
@@ -718,6 +718,8 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
       const f = fires[i]; f.t -= dt; f.mesh.visible = f.dim === nd(); (f.mesh.material as THREE.MeshBasicMaterial).opacity = 0.25 + 0.2 * Math.sin(time * 18) + 0.1 * Math.min(1, f.t)
       if ((f.tick -= dt) <= 0) {
         f.tick = 0.3
+        // the fire does not know whose it is: standing in it burns you too
+        if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 5, "burned by your own fire")
         for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr) {
           e.hp -= 6 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
         }
