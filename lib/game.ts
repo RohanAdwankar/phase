@@ -712,7 +712,10 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
     }
   }
   // bow tier two: where an arrow lands it leaves a patch of fire that burns everything standing in it, you included
-  const fires: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; t: number; tick: number }[] = []
+  const fires: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; t: number }[] = []
+  // fire does not stack: whoever stands in any number of overlapping patches is burned once per BURN_GAP, as if it were one patch
+  const BURN_GAP = 0.3, burned = new WeakMap<object, number>()
+  const burn = (who: object) => { if (time - (burned.get(who) ?? -1e9) < BURN_GAP - 1e-4) return false; burned.set(who, time); return true }
   // the patch is a disc of rings whose every vertex sits on the terrain of the dimension it was fired in, so it hugs slopes instead of hovering
   const fireDisc = (cx: number, cz: number, gy: number, dim: number) => {
     const RINGS = 6, SEG = 32, pts = [0, 0.1, 0]
@@ -724,18 +727,15 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   const spawnFire = (at: THREE.Vector3, dim: number) => {
     const gy = terrainY(at.x, at.z, dim), mesh = new THREE.Mesh(fireDisc(at.x, at.z, gy, dim), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
-    mesh.position.set(at.x, gy, at.z); scene.add(mesh); fires.push({ mesh, pos: mesh.position, dim, t: 4, tick: 0 }); fx.smoke(at, 3, ORANGE, 1.2)
+    mesh.position.set(at.x, gy, at.z); scene.add(mesh); fires.push({ mesh, pos: mesh.position, dim, t: 4 }); fx.smoke(at, 3, ORANGE, 1.2)
   }
   const fireTick = (dt: number) => {
     for (let i = fires.length - 1; i >= 0; i--) {
       const f = fires[i]; f.t -= dt; f.mesh.visible = f.dim === nd(); (f.mesh.material as THREE.MeshBasicMaterial).opacity = 0.25 + 0.2 * Math.sin(time * 18) + 0.1 * Math.min(1, f.t)
-      if ((f.tick -= dt) <= 0) {
-        f.tick = 0.3
-        // the fire does not know whose it is: standing in it burns you too
-        if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 2.5, "burned by your own fire")
-        for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && e.kind !== "flyer" && e.pos.y - terrainY(e.pos.x, e.pos.z, e.dim) < 1.5 && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr) { // drones fly and anything off the ground is above the flames
-          e.hp -= 3 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
-        }
+      // the fire does not know whose it is: standing in it burns you too
+      if (f.dim === nd() && Math.hypot(st.pos.x - f.pos.x, st.pos.z - f.pos.z) < 4.5 && Math.abs(st.pos.y - f.pos.y) < 3 && burn(st)) hurtPlayer({ pos: f.pos, kind: "walker" } as Enemy, 2.5, "burned by your own fire")
+      for (const c of nearChunks(2)) for (const e of [...c.enemies]) if (e.dim === f.dim && e.kind !== "flyer" && e.pos.y - terrainY(e.pos.x, e.pos.z, e.dim) < 1.5 && Math.hypot(e.pos.x - f.pos.x, e.pos.z - f.pos.z) < 4.5 + e.hr && burn(e)) { // drones fly and anything off the ground is above the flames
+        e.hp -= 3 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
       }
       if (f.t <= 0) { f.mesh.removeFromParent(); f.mesh.geometry.dispose(); (f.mesh.material as THREE.Material).dispose(); fires.splice(i, 1) }
     }
