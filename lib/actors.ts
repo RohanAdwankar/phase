@@ -21,7 +21,12 @@ export const STATS: Record<Kind, { hp: number; r: number; hr: number; h: number;
   guardian: { hp: 80, r: 3.5, hr: 3, h: 6.2, fy: 0, speed: 3.6 },
 }
 
-const rbox = (w: number, h: number, d: number, r = 0.02) => new RoundedBoxGeometry(w, h, d, 3, r)
+// every enemy of a kind has the same parts, so identical geometry is built once and shared instead of once per enemy
+const shared = new Map<string, THREE.BufferGeometry>()
+const intern = <A extends unknown[], G extends THREE.BufferGeometry>(C: new (...a: A) => G) => (...a: A): G => { const k = C.name + JSON.stringify(a); let g = shared.get(k); if (!g) shared.set(k, (g = new C(...a))); return g as G }
+const Cyl = intern(THREE.CylinderGeometry), Sph = intern(THREE.SphereGeometry), Tor = intern(THREE.TorusGeometry), Cone = intern(THREE.ConeGeometry), Box = intern(THREE.BoxGeometry), Lathe = intern(THREE.LatheGeometry)
+const Rounded = intern(RoundedBoxGeometry)
+const rbox = (w: number, h: number, d: number, r = 0.02) => Rounded(w, h, d, 3, r)
 const per = <T,>(f: (i: number) => T) => [...Array(N)].map((_, i) => track(i, f(i) as unknown as THREE.Material) as unknown as T)
 const tiled = (p: PBR, r: number): PBR => {
   const t = (x: THREE.Texture) => { const c = x.clone(); c.repeat.set(r, r); c.needsUpdate = true; return c }
@@ -49,34 +54,34 @@ export const walker = (m: FoeMats, dim: number) => {
     const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y, z); parent.add(mesh); return mesh
   }
   // armoured shell: a lathe profile gives a smooth dome with a lip instead of a bare sphere
-  const shell = new THREE.LatheGeometry([[0.001, 0.62], [0.42, 0.6], [0.8, 0.5], [1.05, 0.28], [1.12, 0.05], [1.08, -0.05], [1.14, -0.12], [1.0, -0.2], [0.001, -0.22]].map(([x, y]) => new THREE.Vector2(x, y)), 48)
+  const shell = Lathe([[0.001, 0.62], [0.42, 0.6], [0.8, 0.5], [1.05, 0.28], [1.12, 0.05], [1.08, -0.05], [1.14, -0.12], [1.0, -0.2], [0.001, -0.22]].map(([x, y]) => new THREE.Vector2(x, y)), 48)
   const body = part(shell, m.olive[dim], 0, 1.7, 0); body.scale.set(1, 1, 1.12)
-  part(new THREE.CylinderGeometry(1.08, 0.9, 0.22, 40), m.metal[dim], 0, 1.4, 0).scale.z = 1.12
-  for (const [y, r, sz] of [[1.82, 0.9, 1.12], [1.62, 1.1, 1.12]] as const) { const t = part(new THREE.TorusGeometry(r, 0.03, 8, 64), m.metal[dim], 0, y, 0); t.rotation.x = Math.PI / 2; t.scale.set(1, sz, 1) }
-  for (const a of [-0.55, 0.55]) { const band = part(new THREE.CylinderGeometry(1.0, 1.06, 0.2, 24, 1, true, a + Math.PI / 2 - 0.35, 0.7), m.yellow[dim], 0, 1.76, 0); band.scale.z = 1.12 }
-  for (let k = 0; k < 28; k++) { const a = (k / 28) * 6.283, b = part(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 8), m.metal[dim], Math.cos(a) * 1.115, 1.72, Math.sin(a) * 1.115 * 1.12); b.rotation.set(Math.PI / 2, 0, -a + Math.PI / 2) }
-  const hatch = part(new THREE.SphereGeometry(0.55, 28, 16), m.olive[dim], 0, 2.28, 0.1); hatch.scale.y = 0.5
-  const turret = part(new THREE.SphereGeometry(0.36, 28, 20), m.metal[dim], 0, 2.5, -0.05)
+  part(Cyl(1.08, 0.9, 0.22, 40), m.metal[dim], 0, 1.4, 0).scale.z = 1.12
+  for (const [y, r, sz] of [[1.82, 0.9, 1.12], [1.62, 1.1, 1.12]] as const) { const t = part(Tor(r, 0.03, 8, 64), m.metal[dim], 0, y, 0); t.rotation.x = Math.PI / 2; t.scale.set(1, sz, 1) }
+  for (const a of [-0.55, 0.55]) { const band = part(Cyl(1.0, 1.06, 0.2, 24, 1, true, a + Math.PI / 2 - 0.35, 0.7), m.yellow[dim], 0, 1.76, 0); band.scale.z = 1.12 }
+  for (let k = 0; k < 28; k++) { const a = (k / 28) * 6.283, b = part(Cyl(0.03, 0.03, 0.03, 8), m.metal[dim], Math.cos(a) * 1.115, 1.72, Math.sin(a) * 1.115 * 1.12); b.rotation.set(Math.PI / 2, 0, -a + Math.PI / 2) }
+  const hatch = part(Sph(0.55, 28, 16), m.olive[dim], 0, 2.28, 0.1); hatch.scale.y = 0.5
+  const turret = part(Sph(0.36, 28, 20), m.metal[dim], 0, 2.5, -0.05)
   part(rbox(0.5, 0.26, 0.4, 0.08), m.olive[dim], 0, 2.42, -0.3)
   for (const x of [-0.13, 0.13]) {
-    const b = part(new THREE.CylinderGeometry(0.05, 0.06, 1.0, 12), m.metal[dim], x, 2.5, -0.8); b.rotation.x = Math.PI / 2
-    const sh = part(new THREE.CylinderGeometry(0.085, 0.085, 0.4, 12), m.metal[dim], x, 2.5, -0.55); sh.rotation.x = Math.PI / 2
-    const mz = part(new THREE.CylinderGeometry(0.075, 0.06, 0.12, 12), m.metal[dim], x, 2.5, -1.3); mz.rotation.x = Math.PI / 2
+    const b = part(Cyl(0.05, 0.06, 1.0, 12), m.metal[dim], x, 2.5, -0.8); b.rotation.x = Math.PI / 2
+    const sh = part(Cyl(0.085, 0.085, 0.4, 12), m.metal[dim], x, 2.5, -0.55); sh.rotation.x = Math.PI / 2
+    const mz = part(Cyl(0.075, 0.06, 0.12, 12), m.metal[dim], x, 2.5, -1.3); mz.rotation.x = Math.PI / 2
   }
-  part(new THREE.SphereGeometry(0.075, 12, 8), m.lamp[dim], 0, 2.56, -0.4)
-  for (const x of [-0.45, 0.45]) { part(new THREE.CylinderGeometry(0.1, 0.13, 0.7, 12), m.metal[dim], x, 2.2, 1.0); part(new THREE.SphereGeometry(0.1, 12, 8), m.lamp[dim], x, 2.58, 1.0) }
-  for (const [x, y, z] of [[-0.6, 1.55, -1.12], [0.6, 1.55, -1.12], [-1.05, 1.5, 0.3], [1.05, 1.5, 0.3], [0, 1.45, 1.25]]) part(new THREE.SphereGeometry(0.06, 10, 8), m.lamp[dim], x, y, z)
+  part(Sph(0.075, 12, 8), m.lamp[dim], 0, 2.56, -0.4)
+  for (const x of [-0.45, 0.45]) { part(Cyl(0.1, 0.13, 0.7, 12), m.metal[dim], x, 2.2, 1.0); part(Sph(0.1, 12, 8), m.lamp[dim], x, 2.58, 1.0) }
+  for (const [x, y, z] of [[-0.6, 1.55, -1.12], [0.6, 1.55, -1.12], [-1.05, 1.5, 0.3], [1.05, 1.5, 0.3], [0, 1.45, 1.25]]) part(Sph(0.06, 10, 8), m.lamp[dim], x, y, z)
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const hip = new THREE.Group(); hip.position.set(sx * 0.95, 1.55, sz * 0.7); g.add(hip)
-    part(new THREE.SphereGeometry(0.24, 18, 14), m.olive[dim], 0, 0, 0, hip)
+    part(Sph(0.24, 18, 14), m.olive[dim], 0, 0, 0, hip)
     const upper = new THREE.Group(); hip.add(upper)
-    part(new THREE.CylinderGeometry(0.15, 0.11, L1, 12), m.olive[dim], 0, -L1 / 2, 0, upper)
-    part(new THREE.CylinderGeometry(0.04, 0.04, L1 * 0.8, 8), m.metal[dim], 0.17 * sx, -L1 * 0.45, 0, upper)
-    part(new THREE.SphereGeometry(0.16, 14, 12), m.metal[dim], 0, -L1, 0, upper)
+    part(Cyl(0.15, 0.11, L1, 12), m.olive[dim], 0, -L1 / 2, 0, upper)
+    part(Cyl(0.04, 0.04, L1 * 0.8, 8), m.metal[dim], 0.17 * sx, -L1 * 0.45, 0, upper)
+    part(Sph(0.16, 14, 12), m.metal[dim], 0, -L1, 0, upper)
     const lower = new THREE.Group(); lower.position.y = -L1; upper.add(lower)
-    part(new THREE.CylinderGeometry(0.11, 0.07, L2, 12), m.metal[dim], 0, -L2 / 2, 0, lower)
-    part(new THREE.CylinderGeometry(0.125, 0.13, 0.32, 12), m.yellow[dim], 0, -0.3, 0, lower)
-    part(new THREE.CylinderGeometry(0.2, 0.26, 0.1, 14), m.metal[dim], 0, -L2, 0, lower)
+    part(Cyl(0.11, 0.07, L2, 12), m.metal[dim], 0, -L2 / 2, 0, lower)
+    part(Cyl(0.125, 0.13, 0.32, 12), m.yellow[dim], 0, -0.3, 0, lower)
+    part(Cyl(0.2, 0.26, 0.1, 14), m.metal[dim], 0, -L2, 0, lower)
     const home = new V(sx * 1.9, 0, sz * 1.3)
     legs.push({ hip, upper, lower, home, foot: home.clone(), from: home.clone(), to: home.clone(), t: 1, side: sx })
   }
@@ -111,11 +116,11 @@ const mk = (geo: THREE.BufferGeometry, mat: Mat, parent: THREE.Object3D, x = 0, 
 // small fast bug that rushes the player and bursts on contact
 const swarmer = (m: FoeMats, dim: number) => {
   const g = new THREE.Group(), legs: THREE.Mesh[] = []
-  const body = mk(new THREE.SphereGeometry(0.5, 14, 10), m.olive[dim], g, 0, 0.55, 0); body.scale.set(1, 0.72, 1.25)
-  mk(new THREE.SphereGeometry(0.34, 12, 9), m.yellow[dim], g, 0, 0.78, -0.4).scale.set(1, 0.8, 1)
-  for (const x of [-0.14, 0.14]) mk(new THREE.SphereGeometry(0.075, 8, 6), m.lamp[dim], g, x, 0.86, -0.68)
-  mk(new THREE.ConeGeometry(0.2, 0.55, 6), m.yellow[dim], g, 0, 0.62, 0.62).rotation.x = Math.PI / 2
-  for (const [sx, sz] of [[-1, -0.3], [1, -0.3], [-1, 0.2], [1, 0.2]]) { const l = mk(new THREE.CylinderGeometry(0.05, 0.04, 0.6, 5), m.metal[dim], g, sx * 0.5, 0.28, sz); l.rotation.z = sx * 0.7; legs.push(l) }
+  const body = mk(Sph(0.5, 14, 10), m.olive[dim], g, 0, 0.55, 0); body.scale.set(1, 0.72, 1.25)
+  mk(Sph(0.34, 12, 9), m.yellow[dim], g, 0, 0.78, -0.4).scale.set(1, 0.8, 1)
+  for (const x of [-0.14, 0.14]) mk(Sph(0.075, 8, 6), m.lamp[dim], g, x, 0.86, -0.68)
+  mk(Cone(0.2, 0.55, 6), m.yellow[dim], g, 0, 0.62, 0.62).rotation.x = Math.PI / 2
+  for (const [sx, sz] of [[-1, -0.3], [1, -0.3], [-1, 0.2], [1, 0.2]]) { const l = mk(Cyl(0.05, 0.04, 0.6, 5), m.metal[dim], g, sx * 0.5, 0.28, sz); l.rotation.z = sx * 0.7; legs.push(l) }
   const update = (_dt: number, moving: boolean, phase: number) => { legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(phase * 3.2 + i * 1.7) * 0.7 : 0)); body.position.y = 0.55 + (moving ? Math.abs(Math.sin(phase * 3.2)) * 0.08 : 0) }
   return { mesh: g, turret: body, update }
 }
@@ -123,14 +128,14 @@ const swarmer = (m: FoeMats, dim: number) => {
 // hovering drone: disc body, glowing underside, three spinning rotors; it circles and shoots
 const flyer = (m: FoeMats, dim: number) => {
   const g = new THREE.Group(), rotors: THREE.Mesh[] = []
-  const body = mk(new THREE.SphereGeometry(0.85, 18, 12), m.metal[dim], g, 0, 0.7, 0); body.scale.set(1.15, 0.5, 1.15)
-  mk(new THREE.SphereGeometry(0.5, 14, 10), m.yellow[dim], g, 0, 0.98, 0).scale.set(1, 0.6, 1)
-  mk(new THREE.TorusGeometry(0.72, 0.07, 6, 24), m.lamp[dim], g, 0, 0.5, 0).rotation.x = Math.PI / 2
-  mk(new THREE.SphereGeometry(0.14, 8, 6), m.lamp[dim], g, 0, 0.55, -0.9)
+  const body = mk(Sph(0.85, 18, 12), m.metal[dim], g, 0, 0.7, 0); body.scale.set(1.15, 0.5, 1.15)
+  mk(Sph(0.5, 14, 10), m.yellow[dim], g, 0, 0.98, 0).scale.set(1, 0.6, 1)
+  mk(Tor(0.72, 0.07, 6, 24), m.lamp[dim], g, 0, 0.5, 0).rotation.x = Math.PI / 2
+  mk(Sph(0.14, 8, 6), m.lamp[dim], g, 0, 0.55, -0.9)
   for (let i = 0; i < 3; i++) {
     const a = i * 2.094, arm = new THREE.Group(); arm.position.set(Math.cos(a) * 0.95, 0.85, Math.sin(a) * 0.95); g.add(arm)
-    mk(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 6), m.metal[dim], arm, 0, -0.1, 0)
-    const rot = mk(new THREE.BoxGeometry(1.25, 0.03, 0.14), m.yellow[dim], arm, 0, 0.1, 0); rotors.push(rot)
+    mk(Cyl(0.05, 0.05, 0.3, 6), m.metal[dim], arm, 0, -0.1, 0)
+    const rot = mk(Box(1.25, 0.03, 0.14), m.yellow[dim], arm, 0, 0.1, 0); rotors.push(rot)
   }
   const update = (dt: number) => { rotors.forEach((r, i) => (r.rotation.y += dt * (28 + i * 3))) }
   return { mesh: g, turret: body, update }
@@ -142,16 +147,16 @@ const brute = (m: FoeMats, dim: number) => {
   mk(rbox(2.6, 2.1, 2.1, 0.25), m.olive[dim], g, 0, 2.55, 0)
   mk(rbox(2.9, 0.5, 2.3, 0.15), m.yellow[dim], g, 0, 3.55, 0)
   mk(rbox(1.0, 0.9, 1.0, 0.2), m.metal[dim], g, 0, 4.0, -0.35)
-  mk(new THREE.BoxGeometry(0.9, 0.16, 0.1), m.lamp[dim], g, 0, 4.05, -0.88)
+  mk(Box(0.9, 0.16, 0.1), m.lamp[dim], g, 0, 4.05, -0.88)
   for (const x of [-0.55, 0.55]) mk(rbox(0.9, 1.0, 1.2, 0.2), m.metal[dim], g, x, 1.45, 0)
   for (const s of [-1, 1]) {
     const arm = new THREE.Group(); arm.position.set(s * 1.9, 3.3, 0); g.add(arm)
     mk(rbox(0.9, 0.9, 0.9, 0.2), m.yellow[dim], arm, 0, 0, 0)
-    mk(new THREE.CylinderGeometry(0.34, 0.3, 1.5, 8), m.metal[dim], arm, 0, -0.9, 0)
+    mk(Cyl(0.34, 0.3, 1.5, 8), m.metal[dim], arm, 0, -0.9, 0)
     mk(rbox(1.25, 1.15, 1.25, 0.25), m.olive[dim], arm, 0, -1.9, 0.1)
     arms.push(arm)
   }
-  for (const s of [-1, 1]) legs.push(mk(new THREE.CylinderGeometry(0.34, 0.4, 1.5, 8), m.metal[dim], g, s * 0.8, 0.75, 0))
+  for (const s of [-1, 1]) legs.push(mk(Cyl(0.34, 0.4, 1.5, 8), m.metal[dim], g, s * 0.8, 0.75, 0))
   const update = (_dt: number, moving: boolean, phase: number, slam = 0) => {
     arms.forEach((a, i) => (a.rotation.x = slam > 0 ? -2.3 + (1 - slam) * 2.6 : moving ? Math.sin(phase * 1.4 + i * Math.PI) * 0.35 : 0))
     legs.forEach((l, i) => (l.position.y = 0.75 + (moving ? Math.max(0, Math.sin(phase * 1.4 + i * Math.PI)) * 0.2 : 0)))
