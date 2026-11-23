@@ -711,10 +711,18 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   }
   // bow tier two: where an arrow lands it leaves a patch of fire that burns everything standing in it, you included
   const fires: { mesh: THREE.Mesh; pos: THREE.Vector3; dim: number; t: number; tick: number }[] = []
-  const fireGeo = new THREE.CircleGeometry(4.5, 28).rotateX(-Math.PI / 2)
+  // the patch is a disc of rings whose every vertex sits on the terrain of the dimension it was fired in, so it hugs slopes instead of hovering
+  const fireDisc = (cx: number, cz: number, gy: number, dim: number) => {
+    const RINGS = 6, SEG = 32, pts = [0, 0.1, 0]
+    for (let r = 1; r <= RINGS; r++) for (let k = 0; k < SEG; k++) { const an = (k / SEG) * Math.PI * 2, x = Math.cos(an) * 4.5 * r / RINGS, z = Math.sin(an) * 4.5 * r / RINGS; pts.push(x, terrainY(cx + x, cz + z, dim) - gy + 0.12, z) }
+    const idx: number[] = []
+    for (let k = 0; k < SEG; k++) idx.push(0, 1 + (k + 1) % SEG, 1 + k)
+    for (let r = 1; r < RINGS; r++) for (let k = 0; k < SEG; k++) { const a = 1 + (r - 1) * SEG + k, b = 1 + (r - 1) * SEG + (k + 1) % SEG, c = a + SEG, d = b + SEG; idx.push(a, b, c, b, d, c) }
+    return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(pts, 3)).setIndex(idx)
+  }
   const spawnFire = (at: THREE.Vector3, dim: number) => {
-    const mesh = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false }))
-    mesh.position.set(at.x, terrainY(at.x, at.z, dim) + 0.15, at.z); scene.add(mesh); fires.push({ mesh, pos: mesh.position, dim, t: 4, tick: 0 }); fx.smoke(at, 3, ORANGE, 1.2)
+    const gy = terrainY(at.x, at.z, dim), mesh = new THREE.Mesh(fireDisc(at.x, at.z, gy, dim), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))
+    mesh.position.set(at.x, gy, at.z); scene.add(mesh); fires.push({ mesh, pos: mesh.position, dim, t: 4, tick: 0 }); fx.smoke(at, 3, ORANGE, 1.2)
   }
   const fireTick = (dt: number) => {
     for (let i = fires.length - 1; i >= 0; i--) {
@@ -727,7 +735,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
           e.hp -= 6 * dm(); e.hitT = 0.12; fx.spark(new V(e.pos.x, e.pos.y + 1.5, e.pos.z), 4, new V(0, 1, 0), ORANGE); if (e.hp <= 0) killWalker(e)
         }
       }
-      if (f.t <= 0) { f.mesh.removeFromParent(); (f.mesh.material as THREE.Material).dispose(); fires.splice(i, 1) }
+      if (f.t <= 0) { f.mesh.removeFromParent(); f.mesh.geometry.dispose(); (f.mesh.material as THREE.Material).dispose(); fires.splice(i, 1) }
     }
   }
   // red ground zones: a locked, directional area that will be hit when the timer ends, so you have to leave it
@@ -1264,7 +1272,7 @@ export async function startGame(canvas: HTMLCanvasElement, hud: HTMLCanvasElemen
   status(0.85, "growing the first chunks"); await new Promise(r => setTimeout(r, 30))
   for (budget = 99, stream(); ; ) { budget = 99; stream(); if ([...chunks.values()].filter(c => ring(c) <= 1 && !c.detail).length === 0 && chunks.size >= 25) break }
   raf = requestAnimationFrame(loop)
-  ;(window as unknown as { __g: unknown }).__g = { buy, parrying, shots, rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
+  ;(window as unknown as { __g: unknown }).__g = { fires, spawnFire, buy, parrying, shots, rayCollider, arrows, practiceStep: (n?: number) => (n === undefined ? pr : (pr = n)), st, chunks, genMs, groundH: (x: number, z: number) => terrainY(x, z, nd()), keys, vm: bow, pistol, sword, bombs, explode, makeSfx, sfx, summon, shrines, getShrine, killWalker, startBoss,  getNd: () => nd(), getWeapon: () => weapon, sword2: sword, sunDir: SUN, hurts, dbg, cam, scene, renderer, post, getScale: () => scale, tick, setDim: (v: number) => (target = v + N * Math.round((d - v) / N)), setManual: (v: boolean) => (manual = v) }
 
   const kd = (e: KeyboardEvent) => {
     sfx.init()
